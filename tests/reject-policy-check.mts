@@ -52,7 +52,7 @@ async function mount(config: Parameters<typeof mod.apply>[1]): Promise<{
 }> {
   const ctx = new Context()
   let liveSettings = {
-    mode: (config.mode as 'default' | 'stop') ?? 'stop',
+    mode: 'stop' as 'default' | 'stop',
     stopOnRejectTools: config.stopOnRejectTools ?? [],
   }
   // 模拟 settings 服务：installSection() 被调用时立即用 hooks.setSource 把

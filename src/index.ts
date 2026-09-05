@@ -70,7 +70,7 @@ export interface Config {
 export const Config: z<Config> = z.object({
   stopOnRejectTools: z.array(z.string()).default([]),
   messages: z.dict(z.string()).default({}),
-  defaultMessage: z.string(),
+  defaultMessage: z.string().required(false),
 })
 
 /** settings 段：mode + 触发 tool 列表。运行时可改。 */
@@ -84,7 +84,7 @@ export interface RejectPolicySettings {
 /** settings 命名空间（导出供测试 / UI 引用）。 */
 export const REJECT_POLICY_SETTINGS_NAMESPACE = 'reject-policy' as const
 
-/** 官方 serviceAsk 的拒因模板（packages/core/tools/src/index.ts:1716）。 */
+/** 官方 serviceAsk 的拒因模板（packages/core/tools/src/index.ts:1707）。 */
 export const OFFICIAL_REJECTION_TEMPLATE = 'the user rejected tool "{name}"'
 
 /**
@@ -115,7 +115,7 @@ export function clearStopPending(session: Session): void { stopPending.delete(se
 
 /**
  * 判断检测：result 是 serviceAsk 生成的拒绝结果。匹配
- * `packages/core/tools/src/index.ts:1716` 写出的 `the user rejected tool "X"`。
+ * `packages/core/tools/src/index.ts:1707` 写出的 `the user rejected tool "X"`。
  */
 function isRejectionResult(toolName: string, result: ToolExecutionResult): boolean {
   if (!result.isError) return false
