@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "lib/types/client",
+    "jsx": "react-jsx",
+    "types": ["react"],
+    "declaration": true
+  },
+  "include": ["src/client"]
+}

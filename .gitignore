@@ -1,4 +1,6 @@
 node_modules/
+# pnpm content-addressable store (paired with node_modules/.pnpm/)
+.pnpm-store/
 lib/
 .DS_Store
 *.log

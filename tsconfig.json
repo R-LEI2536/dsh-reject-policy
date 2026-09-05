@@ -4,5 +4,6 @@
     "rootDir": "src",
     "outDir": "lib/types"
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/client", "src/**/*.test.ts", "src/**/*.test.mts", "tests"]
 }
