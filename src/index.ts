@@ -23,6 +23,13 @@ import z from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { PostToolDecision, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import type { RejectMode, RejectPolicySettings } from './shared'
+import { REJECT_MODES, REJECT_POLICY_SETTINGS_NAMESPACE } from './shared'
+
+/** Re-export the pure type / constant surface so existing `import { RejectMode } from 'dsh-reject-policy'`
+ *  consumers keep working without reaching into `./shared` directly. */
+export { REJECT_MODES, REJECT_POLICY_SETTINGS_NAMESPACE }
+export type { RejectMode, RejectPolicySettings }
 
 /**
  * Augment `@deepseek-ai/cordis` Context with the `settings` service.
@@ -51,11 +58,6 @@ declare module '@deepseek-ai/cordis' {
 
 export const name = 'reject-policy'
 
-/** settings 中的 mode 闭值。'stop' = 改文案 + 停 turn；'default' = 仅改文案（若配置）。 */
-export type RejectMode = 'default' | 'stop'
-/** 列出可广告的 mode 值，给设置 UI / 命令校验用。 */
-export const REJECT_MODES: readonly RejectMode[] = ['default', 'stop']
-
 /** 插件 cordis.yml 配置。 */
 export interface Config {
   /** 触发本插件行为的 tool 名列表；空数组表示所有被拒 tool 都触发。默认：[] */
@@ -72,17 +74,6 @@ export const Config: z<Config> = z.object({
   messages: z.dict(z.string()).default({}),
   defaultMessage: z.string().required(false),
 })
-
-/** settings 段：mode + 触发 tool 列表。运行时可改。 */
-export interface RejectPolicySettings {
-  /** 'stop' = 改文案 + 停 turn；'default' = 仅改文案（若配置）。 */
-  mode: RejectMode
-  /** 触发本插件行为的 tool 名列表；空 = 全部。 */
-  stopOnRejectTools: string[]
-}
-
-/** settings 命名空间（导出供测试 / UI 引用）。 */
-export const REJECT_POLICY_SETTINGS_NAMESPACE = 'reject-policy' as const
 
 /** 官方 serviceAsk 的拒因模板（packages/core/tools/src/index.ts:1707）。 */
 export const OFFICIAL_REJECTION_TEMPLATE = 'the user rejected tool "{name}"'

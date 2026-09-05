@@ -33,7 +33,11 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 // LocaleNamespaceMap seat on @deepseek-ai/dsh-client-ui-slots. Without it
 // `ctx.locale.register` and the augmentation below fail to type-check.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-import { REJECT_POLICY_SETTINGS_NAMESPACE } from '../index'
+// Import the slot key from `../shared`, NOT from `../index`. The client bundle
+// purity gate forbids importing anything from the host runtime tree, because
+// `../index` pulls in `@deepseek-ai/schemastery` (a non-EXTERNAL runtime
+// value), which the loader's module table does not answer.
+import { REJECT_POLICY_SETTINGS_NAMESPACE } from '../shared'
 import { RejectPolicyCard, type RejectPolicyCardInjected } from './RejectPolicyCard'
 import { en, zh, type RejectPolicyKey } from './locales'
 

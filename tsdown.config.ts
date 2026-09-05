@@ -2,13 +2,17 @@
  * tsdown config for the dsh-reject-policy package.
  *
  * Two configs:
- *  1. Host half — bundles `lib/types/index.js` (produced by `tsc`) into
- *     `lib/index.js` for the Node-side plugin loader. Plain ESM, no externals
- *     beyond tsdown's defaults.
- *  2. Client half — bundles `lib/types/client/index.js` (produced by
- *     `tsc -p tsconfig.client.json`) into `lib/client.js` for the browser
- *     module table. Lazy-CJS factory format: `window.__ModuleLoader__.load(...)`
- *     wrapper that resolves externals through the injected `require`.
+ *  1. Host half — bundles `lib/types/index.js` (produced by `tsc -p
+ *     tsconfig.json`) into `lib/index.js` for the Node-side plugin loader.
+ *     Plain ESM, no externals beyond tsdown's defaults.
+ *  2. Client half — bundles `src/client/index.ts` directly into
+ *     `lib/client.js` for the browser module table. rolldown handles TSX
+ *     natively; we do not route through `tsc -p tsconfig.client.json`
+ *     because that config's `outDir` would mirror `src/` paths under
+ *     `lib/types/client/...` (a layout rolldown would not understand).
+ *     The separate `tsconfig.client.json` exists purely for the
+ *     `pnpm typecheck:client` gate; it has `noEmit: true` so it never
+ *     writes stale artifacts.
  *
  * Mirrors `want-a-init-fork`'s client half; the shared harness preset
  * (`packages/client/tsdown.client.ts`) is not published, so external plugins
@@ -62,7 +66,7 @@ const host = defineConfig({
 
 const client = defineConfig({
   entry: {
-    client: 'lib/types/client/index.js',
+    client: 'src/client/index.ts',
   },
   outDir: 'lib',
   format: 'cjs',

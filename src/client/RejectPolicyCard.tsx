@@ -21,14 +21,14 @@ import { IconChevronDownOutline14, Menu } from '@deepseek-ai/dsh-client-ui-primi
 // binds through. The reactive shape (`getSnapshot/subscribe/set/unset`) is the
 // one this card already speaks.
 import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
-import type { RejectMode } from '../index'
+// Import the pure type surface from `../shared`, NOT from `../index`.
+// `../index` pulls in `@deepseek-ai/schemastery` as a runtime value; doing so
+// would drag a `require("@deepseek-ai/schemastery")` into the client bundle,
+// but the loader's module table does not register schemastery as a seed
+// word or package factory, so the plugin would fail to load with
+// "missed the module table".
+import type { RejectMode, RejectPolicySettings } from '../shared'
 import css from './RejectPolicyCard.module.css'
-
-/** Full namespace value — the host registers the same shape via installSection. */
-export interface RejectPolicySettings {
-  mode: RejectMode
-  stopOnRejectTools: string[]
-}
 
 /** Injected business face from the client plugin. */
 export interface RejectPolicyCardInjected {
