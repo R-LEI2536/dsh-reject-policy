@@ -1,0 +1,16 @@
+# 发布 patch。
+# dsh.bundle.patch 在 package.json 里指向本文件。
+# Consumer 用 `dsh plugin add link:/path/to/dsh-reject-policy` 装载本插件。
+# （name 字段跟 package.json#name 一致即可，不需要 scope。）
+- insert:
+    - id: reject-policy
+      name: 'dsh-reject-policy'
+      config:
+        # 触发本插件行为的 tool 名列表；空数组表示全部被拒 tool 都触发。
+        stopOnRejectTools: []
+        # 按 tool 名覆盖拒绝时返回给模型的文本。未命中走 defaultMessage。
+        messages:
+          bash: 'The user rejected your bash call. Before using bash again, consider whether a dedicated tool could replace it. If so, switch to that tool. Otherwise, explain your motivation, then ask the user.'
+        # 未在 messages 中命中的 tool 用此模板（支持 {tool} / {name} 占位）。
+        # 留空或省略 = 沿用官方原文 `the user rejected tool "<name>"`。
+        defaultMessage: 'The user rejected your {tool} call. Explain your motivation, then ask the user.'
