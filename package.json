@@ -33,8 +33,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "typecheck:client": "tsc --noEmit -p tsconfig.client.json",
-    "test": "tsx tests/reject-policy-check.mts",
-    "build": "tsc -p tsconfig.json && tsdown",
+    "test": "pnpm ci:drift && tsx tests/reject-policy-check.mts",
+    "build": "pnpm ci:drift && tsc -p tsconfig.json && tsdown",
     "ci:drift": "tsx scripts/check-official-template.ts"
   },
   "dependencies": {
