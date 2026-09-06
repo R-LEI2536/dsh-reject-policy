@@ -101,7 +101,7 @@ the user.
 
 ## Known Limitations and Deferred Work
 
-- **`OFFICIAL_REJECTION_TEMPLATE` is hardcoded** to `the user rejected tool "{name}"`. If upstream DSH rewrites that string in `serviceAsk`, this plugin silently stops detecting rejections (no error, no warning — just no behavior). CI runs `pnpm run ci:drift` against the installed `@deepseek-ai/dsh-tools` source to catch this; the gate fails when the literal is missing.
+- **`OFFICIAL_REJECTION_TEMPLATE` is hardcoded** to `the user rejected tool "{name}"`. If upstream DSH rewrites that string in `serviceAsk`, this plugin silently stops detecting rejections (no error, no warning — just no behavior). `pnpm run ci:drift` (wired into `pnpm test` / `pnpm build`) greps the installed `@deepseek-ai/dsh-tools` source for the prefix and exits 1 if it has drifted — run `pnpm test` or `pnpm build` after upgrading DSH to catch this locally.
 - **Coverage** is limited to tool calls that go through the agent loop. Harness-internal bash and other out-of-loop tool calls are not observable here.
 - **`mode` defaults to `'stop'`**, which closes the turn on the very first rejection. Consumers that want "rewrite only, never halt" should set `mode: 'default'` at install time or toggle it through settings.
 - **The plugin does not broadcast** `mode` changes to UI. Settings changes are silent on the client side.
