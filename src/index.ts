@@ -116,6 +116,12 @@ function isRejectionResult(toolName: string, result: ToolExecutionResult): boole
 
 /** apply — 插件装载入口。注册 post-execute 改写与 pre-step 置停两个 waterfall。 */
 export function apply(ctx: Context, config: Config): void {
+  // 一次性提示：拒因检测靠 OFFICIAL_REJECTION_TEMPLATE 字面相等，上游改前缀
+  // 会让本插件静默失效。用户如果发现配置不灵了，跑 `pnpm ci:drift` 自查。
+  console.warn(
+    '[dsh-reject-policy] detection matches OFFICIAL_REJECTION_TEMPLATE literally. ' +
+    'If you upgrade DSH and overrides silently stop working, run `pnpm ci:drift` to verify upstream has not drifted.',
+  )
   // exactOptionalPropertyTypes: omit `defaultMessage` when undefined so the
   // resulting cfg type matches resolveMessage's `defaultMessage?: string`.
   const cfg: {
