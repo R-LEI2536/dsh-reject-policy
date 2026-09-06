@@ -9,7 +9,7 @@ importers:
   .:
     dependencies:
       '@deepseek-ai/cordis':
-        specifier: ^4.0.2
+        specifier: ^4.0.0
         version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
       '@deepseek-ai/dsh-agent':
         specifier: ^0.1.0-rc.1
@@ -45,7 +45,7 @@ importers:
         specifier: ^0.1.0-rc.1
         version: 0.1.0-rc.8(df525a17d31f10d043b80c3fcb0f7422)
       '@deepseek-ai/schemastery':
-        specifier: ^3.18.2
+        specifier: ^3.0.0
         version: 3.18.2
     devDependencies:
       '@types/node':
