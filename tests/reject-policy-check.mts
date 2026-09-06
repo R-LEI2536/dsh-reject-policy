@@ -41,8 +41,8 @@ const makeExec = (name: string) => ({
 
 const makeRejectionResult = (toolName: string) => ({
   isError: true as const,
-  error: { message: `the user rejected tool "${toolName}"` },
-  content: [{ type: 'text' as const, text: `Error: the user rejected tool "${toolName}"` }],
+  error: { message: mod.OFFICIAL_REJECTION_TEMPLATE.replace('{name}', toolName) },
+  content: [{ type: 'text' as const, text: `Error: ${mod.OFFICIAL_REJECTION_TEMPLATE.replace('{name}', toolName)}` }],
 })
 
 // ── 工具：装载插件 + 返回 ctx/settingsRef ─────────────────────────────────
