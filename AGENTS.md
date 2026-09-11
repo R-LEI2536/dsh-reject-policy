@@ -5,7 +5,7 @@ rejected, and optionally halts the turn after the rejection.
 
 ## Project
 
-- Standalone DSH plugin package (version `0.2.0`, `name = dsh-reject-policy`).
+- Standalone DSH plugin package (version `0.2.1`, `name = dsh-reject-policy`).
 - Lives at the repo root, deliberately **not** inside a `packages/` directory
   — it is deployment-side composition, not an official upstream package.
 - Two halves compiled into one published surface:
@@ -31,7 +31,12 @@ Run from the repo root with `pnpm`.
 
 - `pnpm install` — installs deps; pnpm content-addressable store is pinned to
   `.pnpm-store/` via `.npmrc`. `pnpm-workspace.yaml` only enables the
-  `esbuild` allow-build.
+  `esbuild` allow-build. **pnpm 11 quirk**: in this environment the
+  `.npmrc` `store-dir=.pnpm-store` is not always honored on a fresh install
+  (the system store at `~/.local/share/pnpm/store/v11/` is read-only and
+  pnpm errors with `ERR_PNPM_EROFS` mid-resolve). Pass `--store-dir=.pnpm-store`
+  on the CLI as a belt-and-braces measure; `CI=true` is also required because
+  pnpm refuses to recreate `node_modules` without a TTY.
 - `pnpm run typecheck` — `tsc --noEmit` against `tsconfig.json` (host tree).
 - `pnpm run typecheck:client` — `tsc --noEmit -p tsconfig.client.json`
   (client tree; `noEmit: true`).
@@ -121,8 +126,11 @@ Run from the repo root with `pnpm`.
 - `.env` at the repo root holds local harness dev secrets; it is
   git-ignored. Do not commit secrets; do not echo them into docs.
 - `pnpm-lock.yaml` is the source of truth for installed versions; the
-  `@deepseek-ai/dsh-*` peer-dep range is the **only** thing pinning us to
-  the right upstream to detect.
+  `@deepseek-ai/dsh-*` peer-dep range is the only knob that pins us to
+  a given upstream train. **Note**: prerelease semver (`^0.1.0-rc.1`)
+  does not float forward to later `0.1.x-rc.y` builds under node-semver's
+  default prerelease rules — bump the range explicitly when chasing a
+  new train, and delete `pnpm-lock.yaml` before reinstalling.
 
 ## Pitfalls
 

@@ -15,12 +15,11 @@
 import { useRef, useState, useSyncExternalStore, type ReactElement } from 'react'
 import type { InjectFace, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconChevronDownOutline14, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
-// DSH 0.1.2-rc.1: `@deepseek-ai/dsh-client-runtime` was split; the per-namespace
-// `SettingsScope<T>` host now ships from `@deepseek-ai/dsh-client-ui-settings`,
-// whose `apply()` builds the `ctx.settingsScope` binder every preference row
-// binds through. The reactive shape (`getSnapshot/subscribe/set/unset`) is the
-// one this card already speaks.
-import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
+// DSH 0.1.5-rc.1: `@deepseek-ai/dsh-client-runtime` no longer exists as a
+// published package — the per-namespace `SettingsScope<T>` host now ships
+// from `@deepseek-ai/dsh-client-ui-settings`. The reactive shape
+// (`getSnapshot/subscribe/set/unset`) is the one this card already speaks.
+import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 // Import the pure type surface from `../shared`, NOT from `../index`.
 // `../index` pulls in `@deepseek-ai/schemastery` as a runtime value; doing so
 // would drag a `require("@deepseek-ai/schemastery")` into the client bundle,
