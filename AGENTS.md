@@ -5,7 +5,7 @@ rejected, and optionally halts the turn after the rejection.
 
 ## Project
 
-- Standalone DSH plugin package (version `0.2.1`, `name = dsh-reject-policy`).
+- Standalone DSH plugin package (version `0.2.2`, `name = dsh-reject-policy`).
 - Lives at the repo root, deliberately **not** inside a `packages/` directory
   — it is deployment-side composition, not an official upstream package.
 - Two halves compiled into one published surface:

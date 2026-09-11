@@ -1,6 +1,6 @@
 {
   "name": "dsh-reject-policy",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "DSH plugin: rewrite denial messages and optionally stop the turn when a tool call is rejected by the user.",
   "type": "module",
   "main": "lib/index.js",
