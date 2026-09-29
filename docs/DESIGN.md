@@ -8,7 +8,7 @@
 
 | 用户原始需求 | 落地方式 |
 |---|---|
-| 设置里开关 reject 行为 | settings namespace `reject-policy`，暴露 `mode` + `stopOnRejectTools` |
+| 设置里开关 reject 行为 | 插件 Config 的 volatile 字段（entry id `reject-policy`）：Plugins 页 row Configure 或 `ctx.settings.update` 编辑 `mode` + `stopOnRejectTools` |
 | 拒绝后停当前 turn | `mode='stop'` + `agent/pre-step` 返回 `kind: 'reject'`，turn 以 `kind: 'blocked'` 关闭 |
 | 停哪些 tool 可配 | `stopOnRejectTools: string[]`，空数组 = 全部 |
 | reject 文案可配 | `messages[name]` 精确覆盖；`defaultMessage` 模板兜底（`{tool}` / `{name}`） |
@@ -59,7 +59,7 @@ const OFFICIAL_REJECTION_TEMPLATE = 'the user rejected tool "{name}"'
 
 匹配 `result.error.message === OFFICIAL_REJECTION_TEMPLATE.replace('{name}', exec.name)`。
 
-**耦合点**：`packages/core/tools/src/index.ts:1716` 的官方原文改了，本常量必须同步更新。
+**耦合点**：`packages/core/tools/src/index.ts:1755` 的官方原文改了，本常量必须同步更新。
 
 ## 5. 为什么用 `agent/pre-step` reject 而不是 abort signal
 
@@ -73,17 +73,21 @@ const OFFICIAL_REJECTION_TEMPLATE = 'the user rejected tool "{name}"'
 ## 6. 配置分层
 
 ```
-cordis.yml patch（reload 生效）：
-  stopOnRejectTools: string[]    # 哪些 tool 触发本插件
-  messages: Record<string, string> # 按 tool 名覆盖文案
-  defaultMessage?: string          # 模板兜底
-
-settings（运行时可改，命名空间 reject-policy）：
-  mode: 'default' | 'stop'
-  stopOnRejectTools: string[]
+cordis.yml patch（bundle 继承层 + profile user 层，reload/volatile-update 生效）：
+  mode?: 'default' | 'stop'     # volatile——运行时可改，默认 'stop'
+  stopOnRejectTools?: string[]  # volatile——运行时可改，默认 []
+  messages?: Record<string, string>     # 一次性交付，非 volatile
+  defaultMessage?: string               # 一次性交付，非 volatile
 ```
 
-**为什么文案不进 settings**：拒绝文本是一次性交付，不是 live rule。运行时改"下一次拒绝用什么文本"语义模糊。
+DSH 0.1.7 起：`mode` / `stopOnRejectTools` 声明为 Config schema 的
+`.volatile()` 字段，运行时编辑（Plugins 页 row Configure 或
+`ctx.settings.update('reject-policy', {...})`）写入 `<profile>/cordis.patch.yml`；
+Loader `_commitVolatile` 原地更新 volatile 引用（不重挂），本插件两个
+listener 事件时读 `config.mode.get()` / `config.stopOnRejectTools.get()`，
+无需订阅 `loader/volatile-update`。
+
+**为什么文案不进 volatile**：拒绝文本是一次性交付，不是 live rule。运行时改"下一次拒绝用什么文本"语义模糊（沿用旧取舍）。
 
 ## 7. 文件清单
 

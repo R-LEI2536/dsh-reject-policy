@@ -1,7 +1,8 @@
 /**
  * reject-policy — 自有 reject 行为插件（不进 packages/）。
  *
- * 在 settings 的 `mode` 下，覆盖官方 serviceAsk 的 reject 文本与 turn 收尾：
+ * 在插件 Config 的 volatile `mode` 字段下，覆盖官方 serviceAsk 的 reject
+ * 文本与 turn 收尾：
  *
  * - `mode='default'` + 无文案配置：本插件对结果不做任何修改，等同于官方原版。
  * - `mode='default'` + 配置了 `messages` / `defaultMessage`：改写错误文本，
@@ -15,11 +16,22 @@
  *
  * `stopOnRejectTools` 控制哪些被拒 tool 触发本插件行为；空数组表示全部。
  *
+ * DSH 0.1.7：`mode` 与 `stopOnRejectTools` 是 Config 的 volatile 字段——
+ * 表单写入 profile patch（`configEditor`），Loader 经 `_commitVolatile`
+ * 原地更新 volatile 引用并发出 `loader/volatile-update`（不重挂）。本插件的
+ * 两个 listener 都是事件时读 `config.mode.get()` / `config.stopOnRejectTools.get()`，
+ * 因此无需订阅 `loader/volatile-update` 即可看到最新值。
+ * `messages` / `defaultMessage` 保持非 volatile（一次性交付的文案，不是 live rule）。
+ *
  * @module plugin-reject-policy
  */
 
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+// Type-only: pulls `ctx.settings` (SettingsForms) type from `@deepseek-ai/dsh-settings`.
+// The `settings` service is only used for the `configure({ auto: false })` page
+// policy; when the host composes no settings service the inject block never runs.
+import type {} from '@deepseek-ai/dsh-settings'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { PostToolDecision, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
@@ -31,51 +43,55 @@ import { REJECT_MODES, REJECT_POLICY_SETTINGS_NAMESPACE } from './shared'
 export { REJECT_MODES, REJECT_POLICY_SETTINGS_NAMESPACE }
 export type { RejectMode, RejectPolicySettings }
 
-/**
- * Augment `@deepseek-ai/cordis` Context with the `settings` service.
- *
- * Inside the deepseek-harness monorepo this augmentation lives in
- * `packages/settings/settings/src/index.ts`. External plugins loading
- * `@deepseek-ai/cordis` from npm do not transitively see it; declare
- * the surface we actually consume.
- */
-declare module '@deepseek-ai/cordis' {
-  interface Context {
-    settings: {
-      installSection<const T>(
-        owner: Context,
-        ns: string,
-        schema: z<T>,
-        entry: T,
-        hooks: {
-          setSource: (current: () => T) => void
-          onChange: () => void
-        },
-      ): void
-    }
-  }
-}
-
 export const name = 'reject-policy'
 
-/** 插件 cordis.yml 配置。 */
+/**
+ * 部署方 patch 输入形状（`cordis.patch.yml` 的 config 段，全部可选）。与
+ * 0.2.2 的公开 `Config` 类型形状一致；schema 校验后 apply 收到的是
+ * {@link RuntimeConfig}（volatile 字段包在 `Volatile<T>` 引用里）。
+ */
 export interface Config {
+  /** 'stop' = 改文案 + 停 turn；'default' = 仅改文案（若配置）。默认：'stop' */
+  mode?: RejectMode
   /** 触发本插件行为的 tool 名列表；空数组表示所有被拒 tool 都触发。默认：[] */
   stopOnRejectTools?: string[]
   /** 按 tool 名覆盖拒绝时返回给模型的文本。默认：{}（使用官方原文） */
   messages?: Record<string, string>
-  /** 未在 messages 中命中的 tool 使用的模板，支持 `{tool}` / `{name}` 占位。默认：undefined */
+  /** 未在 messages 中命中的 tool 使用的模板，支持 `{tool}` / `{name}` 占位。 */
   defaultMessage?: string
 }
 
-/** schemastery schema：cordis.yml 装载阶段校验。 */
-export const Config: z<Config> = z.object({
-  stopOnRejectTools: z.array(z.string()).default([]),
+/**
+ * 运行时解析后的 Config（`resolveConfig` 输出）：`mode` / `stopOnRejectTools`
+ * 是 volatile 引用（live，随 profile user 层经 `loader/volatile-update` 原地
+ * 更新），其余字段为启动时定值的普通值。`apply` 按此形状读配置。
+ *
+ * 注意：schemastery `required(false)` 的输出类型把 `defaultMessage` 标为必填，
+ * 但补丁未配置时运行期解析结果仍是 `undefined`（apply 已防御性处理）。
+ */
+export interface RuntimeConfig {
+  mode: Volatile<RejectMode>
+  stopOnRejectTools: Volatile<string[]>
+  messages: Record<string, string>
+  defaultMessage: string
+}
+
+/**
+ * schemastery schema：cordis.yml 装载阶段校验。volatile 字段 = 运行时可编辑面。
+ *
+ * 不加 `z<Config>` 标注：schema 的输入形状（原始值）与输出形状（volatile 引用）
+ * 不同，`exactOptionalPropertyTypes` 下单一类型参数无法同时绑定两者；因此值绑定
+ * `z<RuntimeConfig>`（输出侧描述，d.ts 可移植），公开契约由上面的 `Config`
+ * （patch 输入）与 `RuntimeConfig`（apply 输入）两个接口表达。
+ */
+export const Config = z.object({
+  mode: z.union([...REJECT_MODES] as RejectMode[]).default('stop').volatile(),
+  stopOnRejectTools: z.array(z.string()).default([]).volatile(),
   messages: z.dict(z.string()).default({}),
   defaultMessage: z.string().required(false),
-})
+}) as z<RuntimeConfig>
 
-/** 官方 serviceAsk 的拒因模板（packages/core/tools/src/index.ts:1707）。 */
+/** 官方 serviceAsk 的拒因模板（packages/core/tools/src/index.ts:1755）。 */
 export const OFFICIAL_REJECTION_TEMPLATE = 'the user rejected tool "{name}"'
 
 /**
@@ -106,7 +122,7 @@ export function clearStopPending(session: Session): void { stopPending.delete(se
 
 /**
  * 判断检测：result 是 serviceAsk 生成的拒绝结果。匹配
- * `packages/core/tools/src/index.ts:1707` 写出的 `the user rejected tool "X"`。
+ * `packages/core/tools/src/index.ts:1755` 写出的 `the user rejected tool "X"`。
  */
 function isRejectionResult(toolName: string, result: ToolExecutionResult): boolean {
   if (!result.isError) return false
@@ -115,35 +131,30 @@ function isRejectionResult(toolName: string, result: ToolExecutionResult): boole
 }
 
 /** apply — 插件装载入口。注册 post-execute 改写与 pre-step 置停两个 waterfall。 */
-export function apply(ctx: Context, config: Config): void {
+export function apply(ctx: Context, config: RuntimeConfig): void {
   // 一次性提示：拒因检测靠 OFFICIAL_REJECTION_TEMPLATE 字面相等，上游改前缀
   // 会让本插件静默失效。用户如果发现配置不灵了，跑 `pnpm ci:drift` 自查。
   console.warn(
     '[dsh-reject-policy] detection matches OFFICIAL_REJECTION_TEMPLATE literally. ' +
     'If you upgrade DSH and overrides silently stop working, run `pnpm ci:drift` to verify upstream has not drifted.',
   )
+  // 非 volatile 文案配置：patch 变更走 Loader 整行重挂，apply 会重新捕获，
+  // 因此这里快照一次即可；volatile 字段经 `.get()` 事件时读。
   // exactOptionalPropertyTypes: omit `defaultMessage` when undefined so the
   // resulting cfg type matches resolveMessage's `defaultMessage?: string`.
   const cfg: {
-    stopOnRejectTools: string[]
     messages: Record<string, string>
     defaultMessage?: string
   } = {
-    stopOnRejectTools: config.stopOnRejectTools ?? [],
     messages: config.messages ?? {},
     ...(config.defaultMessage !== undefined ? { defaultMessage: config.defaultMessage } : {}),
   }
-  // settings thunk：当前生效的 mode + 触发列表。每次 settings 写入后被替换。
-  let settingsRef: () => RejectPolicySettings = () => ({
-    mode: 'stop' as RejectMode,
-    stopOnRejectTools: cfg.stopOnRejectTools,
-  })
 
-  /** 当前模式。mode='default' 时不置停；mode='stop' 时置停。 */
-  const currentMode = (): RejectMode => settingsRef().mode
+  /** 当前模式：volatile Config，事件时读最新值（loader/volatile-update 原地更新）。 */
+  const currentMode = (): RejectMode => config.mode.get()
   /** 工具是否在本插件的触发范围内（与 mode 解耦：mode 只决定是否置停）。 */
   const inScope = (toolName: string): boolean => {
-    const list = settingsRef().stopOnRejectTools
+    const list = config.stopOnRejectTools.get()
     return list.length === 0 || list.includes(toolName)
   }
 
@@ -190,18 +201,8 @@ export function apply(ctx: Context, config: Config): void {
     return { kind: 'reject' }
   })
 
-  // ── settings：mode + 触发列表 走 settings.installSection ───────────────
-  const settingsSchema: z<RejectPolicySettings> = z.object({
-    mode: z.union([...REJECT_MODES] as RejectMode[]).required(),
-    stopOnRejectTools: z.array(z.string()).required(),
-  })
-  ctx.inject(['settings'], (settingsCtx) => {
-    settingsCtx.settings.installSection(ctx, REJECT_POLICY_SETTINGS_NAMESPACE, settingsSchema, {
-      mode: 'stop',
-      stopOnRejectTools: cfg.stopOnRejectTools,
-    }, {
-      setSource: (current: () => RejectPolicySettings) => { settingsRef = current },
-      onChange: () => {},
-    })
-  })
+  // ── settings：注册自定义页面策略，禁止为 reject-policy 自动生成表单 ────
+  // 本插件的配置页面是 Plugins 页的 `plugins.row.config`（见 src/client/），
+  // 与 ui-theme 等自带定制页的插件一致，声明 auto: false。
+  ctx.inject(['settings'], (child) => { child.effect(() => child.settings.configure({ auto: false }, ctx.fiber)) })
 }

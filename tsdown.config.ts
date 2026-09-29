@@ -35,13 +35,15 @@ const PLUGIN_ID = 'dsh-reject-policy'
  * is inlined into the bundle. Matches the client's runtime `inject` plus
  * react (loader baseline already includes react).
  *
- * The plugins section's typed slot declaration (`settings.plugin.item`) still
- * ships from `@deepseek-ai/dsh-client-ui-settings-plugins` but is consumed
- * through type-only imports, so it does not need to be runtime-external.
+ * The Plugins page's typed slot declaration (`plugins.row.config`) ships from
+ * `@deepseek-ai/dsh-client-ui-plugin-manager` but is consumed through
+ * type-only imports, so it does not need to be runtime-external; it stays in
+ * the list because the module-table seed and EXTERNAL must stay in sync.
  */
 const EXTERNAL = [
   '@deepseek-ai/dsh-client-locale',
   '@deepseek-ai/dsh-client-ui-settings',
+  '@deepseek-ai/dsh-client-ui-plugin-manager',
   '@deepseek-ai/dsh-client-ui-renderer',
   '@deepseek-ai/dsh-client-ui-primitives',
   'react',

@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.3.0 (2026-09-XX)
+
+DSH `0.1.7-rc.1`+ alignment (target train `0.1.7-rc.2`). Per the
+[DSH 0.1.7 upgrade plan](../deepseek-harness/DSH-0.1.7-UPGRADE-PLAN.md):
+the settings transport was replaced by volatile Config fields, the client
+card moved from the retired Settings Plugins section onto the Plugins page,
+and the peer floor was raised to the rc.2 train.
+
+- **breaking(host)**: drop `settings.installSection` / the settings-section
+  transport. `mode` and `stopOnRejectTools` are now **volatile Config fields**
+  (schema `.volatile()`); runtime edits write `<profile>/cordis.patch.yml`
+  and land in the running plugin without a remount. `apply` now receives the
+  resolved `RuntimeConfig` shape (`Volatile<T>` wrappers); the public
+  `Config` type keeps the patch-facing shape from 0.2.2.
+- **breaking(client)**: `ctx.settingsScope` → `ctx.configForms`
+  (`set/unset/mutate` return `Promise<boolean>`); the card leaves the retired
+  `settings.plugin.item` seat and registers into the Plugins page's
+  `plugins.row.config` slot (key `dsh-reject-policy#reject-policy`), giving
+  the bundle's row a **Configure** page.
+- feat: `ctx.settings.configure({ auto: false })` registered for the plugin,
+  mirroring the official custom-page plugins (ui-theme / ui-chat).
+- chore(deps): every `@deepseek-ai/dsh-*` peer range `^0.1.5-rc.1` →
+  `^0.1.7-rc.1`; drop the retired `@deepseek-ai/dsh-client-ui-settings-plugins`
+  peer; add `@deepseek-ai/dsh-client-ui-plugin-manager`; raise
+  `@deepseek-ai/cordis` to `^4.0.4` and `@deepseek-ai/schemastery` to
+  `^3.18.4` (the rc.2 train's transitive peers require them — earlier
+  versions lack the `.volatile()` API).
+- style(client): `IconChevronDownOutline14` → `IconChevronDownOutlineRegular`
+  (J1-26 icon rename); the disclosure card chrome is removed — the Plugins
+  page owns title/crumb/description now.
+- test: `tests/reject-policy-check.mts` drives runtime mode switches by
+  writing the volatile references directly (`Symbol.for('cosmokit.volatile.write')`),
+  the same in-place update the Loader's `_commitVolatile` performs; still
+  18/18 across the 7 cases.
+
+Verified on `0.1.7-rc.2`: `ci:drift` (upstream message unchanged at
+`packages/core/tools/src/index.ts:1755`), host `typecheck`, client
+`typecheck`, `test` (18/18), `build` all pass; client bundle purity holds
+(no `@deepseek-ai/schemastery` leak).
+
 ## 0.2.2 (2026-09-11)
 
 DSH `0.1.5-rc.1` alignment. Per the

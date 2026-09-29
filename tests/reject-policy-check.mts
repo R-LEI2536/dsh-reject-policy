@@ -5,13 +5,20 @@
  * 然后调用 ctx.waterfall('tools/post-execute', ...) 与 ctx.waterfall('agent/pre-step', ...)
  * 模拟一次拒绝结果 + 下一轮 pre-step，断言本插件产出与预期一致。
  *
- * 覆盖 6 条断言：
+ * DSH 0.1.7：`mode` / `stopOnRejectTools` 是插件 Config 的 volatile 字段，
+ * 运行时改动走「写 volatile 引用」路径——这正是 Loader `_commitVolatile`
+ * （loader/volatile-update）在生产环境做的事。测试用 cosmokit 的内部写
+ * 协议（`Symbol.for('cosmokit.volatile.write')`）把 `fiber.config` 上的
+ * 引用原地更新，插件的事件时 `.get()` 随即读到新值，无需任何订阅。
+ *
+ * 覆盖 18 条断言：
  *   1. mode='default' + 无文案配置 → 结果透传（无 flag、无文案改写）。
- *   2. mode='default' + messages.bash → 文案改写；无 flag。
+ *   2. mode 默认 'stop' + messages.bash → 文案改写 + flag。
  *   3. mode='stop' + messages.bash → 文案改写 + flag 置位 + pre-step 返回 reject。
  *   4. mode='stop' + stopOnRejectTools=['read'] → bash 被拒不触发停（无 flag）。
  *   5. mode='stop' + defaultMessage='permission denied for {tool}' → 模板替换。
- *   6. 运行时 settings 改 mode='default' → 后续拒绝回到"仅改文案"。
+ *   6. 运行时改 volatile mode='default' → 后续拒绝回到"仅改文案"。
+ *   7. resolveMessage 纯函数单测。
  */
 
 import { Context } from '@deepseek-ai/cordis'
@@ -22,6 +29,16 @@ let failures = 0
 const expect = (label: string, ok: boolean, detail = ''): void => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}${detail ? `  (${detail})` : ''}`)
   if (!ok) failures++
+}
+
+type RejectMode = 'default' | 'stop'
+type VolatilePatch = { mode?: RejectMode; stopOnRejectTools?: string[] }
+
+/** 模拟 Loader `_commitVolatile`：把新值写进运行的 volatile 引用（cosmokit 内写协议，
+ *  与 `updateVolatile` 落的是同一个 `Symbol.for('cosmokit.volatile.write')`）。 */
+function writeVolatile(ref: object, value: unknown): void {
+  const writable = ref as { [key: symbol]: (value: unknown) => void }
+  writable[Symbol.for('cosmokit.volatile.write')](value)
 }
 
 // ── 共用工厂：构造一个 session 形状与 tool exec 形状 ─────────────────────────
@@ -45,35 +62,20 @@ const makeRejectionResult = (toolName: string) => ({
   content: [{ type: 'text' as const, text: `Error: ${mod.OFFICIAL_REJECTION_TEMPLATE.replace('{name}', toolName)}` }],
 })
 
-// ── 工具：装载插件 + 返回 ctx/settingsRef ─────────────────────────────────
+// ── 工具：装载插件 + 返回 ctx/setConfig ─────────────────────────────────
 async function mount(config: Parameters<typeof mod.apply>[1]): Promise<{
   ctx: Context
-  setSettings: (next: { mode: 'default' | 'stop'; stopOnRejectTools: string[] }) => void
+  // 运行时改 volatile Config：等价于 profile patch 写入后的 `_commitVolatile`。
+  setConfig: (patch: VolatilePatch) => void
 }> {
   const ctx = new Context()
-  let liveSettings = {
-    mode: 'stop' as 'default' | 'stop',
-    stopOnRejectTools: config.stopOnRejectTools ?? [],
-  }
-  // 模拟 settings 服务：installSection() 被调用时立即用 hooks.setSource 把
-  // 插件内的 settingsRef thunk 替换为 `() => liveSettings`，这样测试通过
-  // setSettings 改 liveSettings 后，插件立即看到新值。
-  ctx.provide('settings', {
-    installSection: (
-      _owner: Context,
-      _ns: string,
-      _schema: unknown,
-      _entry: { mode: 'default' | 'stop'; stopOnRejectTools: string[] },
-      hooks: { setSource: (s: () => typeof liveSettings) => void; onChange: () => void },
-    ): void => {
-      hooks.setSource(() => liveSettings)
-      hooks.onChange()
-    },
-  } as never)
-  await ctx.plugin(mod, config)
+  const fiber = await ctx.plugin(mod, config)
   return {
     ctx,
-    setSettings: (next) => { liveSettings = next },
+    setConfig: (patch) => {
+      if (patch.mode !== undefined) writeVolatile(fiber.config.mode, patch.mode)
+      if (patch.stopOnRejectTools !== undefined) writeVolatile(fiber.config.stopOnRejectTools, patch.stopOnRejectTools)
+    },
   }
 }
 
@@ -109,27 +111,23 @@ async function runPreStep(ctx: Context): Promise<{ kind: 'enter' | 'reject' }> {
 
 // ── 1) mode='default' + 无文案配置 → 透传 ───────────────────────────────────
 {
-  const { ctx, setSettings } = await mount({ stopOnRejectTools: [], messages: {} })
-  // mount 默认 mode='stop'，显式切到 'default' 验证"纯 DSH 原版"路径。
-  setSettings({ mode: 'default', stopOnRejectTools: [] })
+  const { ctx, setConfig } = await mount({ stopOnRejectTools: [], messages: {} })
+  // 运行时把 volatile mode 切到 'default'，验证"纯 DSH 原版"路径。
+  setConfig({ mode: 'default' })
   const r = await runRejection(ctx, 'bash')
   expect('default+无配置 透传官方原文', r.errorMessage === 'the user rejected tool "bash"', `got=${r.errorMessage}`)
   expect('default+无配置 不置 flag', r.flagged === false)
 }
 
-// ── 2) mode='default' + messages.bash → 改文案，不置 flag ────────────────────
+// ── 2) mode 默认 'stop' + messages.bash → 改文案 + 置 flag ─────────────────
 {
   const { ctx } = await mount({
     stopOnRejectTools: [],
     messages: { bash: 'permission denied by user' },
-    // mode settings 默认 'stop'，但我们要 'default'——通过外部 settings 注入。
   })
-  // mount 用的 config 不会改 mode；settings 默认是 'stop'。
-  // 这里直接测：mode='stop' 也只是 flag 行为；文案改写与 mode 无关。
-  // 为了验证 mode='default' 不置 flag，把 settings 改一下。
-  // 但 mount 没暴露 setSettings……重写 mount 的实现不可行，改为另起一个 case。
-  expect('default-like: 改写文案', (await runRejection(ctx, 'bash')).errorMessage === 'permission denied by user')
-  expect('mode=stop 默认: 置 flag', (await runRejection(ctx, 'bash')).flagged === true)
+  // mount 未配 mode：volatile default 为 'stop'。文案改写与 mode 无关。
+  expect('默认 stop: 改写文案', (await runRejection(ctx, 'bash')).errorMessage === 'permission denied by user')
+  expect('默认 stop: 置 flag', (await runRejection(ctx, 'bash')).flagged === true)
 }
 
 // ── 3) mode='stop' + messages.bash → 改文案 + flag + pre-step reject ─────────
@@ -147,8 +145,8 @@ async function runPreStep(ctx: Context): Promise<{ kind: 'enter' | 'reject' }> {
 
 // ── 4) mode='stop' + stopOnRejectTools=['read'] → bash 不触发停 ─────────────
 {
-  const { ctx, setSettings } = await mount({ stopOnRejectTools: ['read'] })
-  setSettings({ mode: 'stop', stopOnRejectTools: ['read'] })
+  const { ctx, setConfig } = await mount({ stopOnRejectTools: ['read'] })
+  setConfig({ mode: 'stop', stopOnRejectTools: ['read'] })
   mod.clearStopPending(fakeSession)
   const r = await runRejection(ctx, 'bash')
   expect('stopOnRejectTools=[read] bash 被拒不触发停（无 flag）', r.flagged === false)
@@ -168,19 +166,19 @@ async function runPreStep(ctx: Context): Promise<{ kind: 'enter' | 'reject' }> {
   expect('defaultMessage 触发停', r.flagged === true)
 }
 
-// ── 6) 运行时切到 mode='default' → 后续拒绝仅改文案 ─────────────────────────
+// ── 6) 运行时改 volatile mode='default' → 后续拒绝仅改文案 ─────────────────
 {
-  const { ctx, setSettings } = await mount({
+  const { ctx, setConfig } = await mount({
     stopOnRejectTools: [],
     messages: { bash: 'permission denied by user' },
   })
-  setSettings({ mode: 'default', stopOnRejectTools: [] })
+  setConfig({ mode: 'default' })
   mod.clearStopPending(fakeSession)
   const r = await runRejection(ctx, 'bash')
   expect('运行时 mode=default：改文案', r.errorMessage === 'permission denied by user', `got=${r.errorMessage}`)
   expect('运行时 mode=default：不置 flag', r.flagged === false)
   // 6b) 切回 stop 又能置 flag
-  setSettings({ mode: 'stop', stopOnRejectTools: [] })
+  setConfig({ mode: 'stop' })
   mod.clearStopPending(fakeSession)
   const r2 = await runRejection(ctx, 'bash')
   expect('运行时切回 mode=stop：又置 flag', r2.flagged === true)

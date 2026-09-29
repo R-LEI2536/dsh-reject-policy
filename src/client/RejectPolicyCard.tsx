@@ -1,25 +1,30 @@
 /**
- * RejectPolicyCard — the Plugins-section card for dsh-reject-policy.
+ * RejectPolicyCard — the `plugins.row.config` page for dsh-reject-policy.
  *
- * Mirrors the disclosure chrome of `ui-settings-plugins/PluginCard`:
- *   - closed by default; the header button expands/collapses the body
- *   - one dropdown (Stop / Default) inside, staged locally, written on Save
- *   - pending state shown via the Save / Discard buttons' enabled flags
- *   - Discard drops the staged edit; Save writes via the settings scope
+ * Rendered inside the Plugins page's row detail view (opened from the
+ * Configure control on the `reject-policy` row of the `dsh-reject-policy`
+ * bundle). The page owns the title, crumb, icon, and description chrome and
+ * drops staged edits when the page is left; this card draws only the form:
+ * one dropdown (Stop / Default) staged locally, written on Save.
  *
- * The card reuses its own CSS rather than importing `PluginCard` /
- * `CardForm` from `ui-settings-plugins` — the bundle purity gate
- * forbids value imports across plugins, so the chrome lives next to
- * the card.
+ * Values come from the page-supplied `form` (`ConfigPageForm`): `form.state`
+ * is the live snapshot of the `reject-policy` namespace on the shared
+ * settings describe mirror, and `form.mutate` writes the plugin entry's
+ * volatile Config into the profile patch. When the staged edit equals the
+ * composition `base`, the card clears the user layer (`op: 'unset'`) instead
+ * of writing a redundant override.
+ *
+ * `view === 'summary'` renders the one-liner the page uses as the row's
+ * description fallback when the bundle supplies no description.
  */
-import { useRef, useState, useSyncExternalStore, type ReactElement } from 'react'
-import type { InjectFace, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
-import { IconChevronDownOutline14, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
-// DSH 0.1.5-rc.1: `@deepseek-ai/dsh-client-runtime` no longer exists as a
-// published package — the per-namespace `SettingsScope<T>` host now ships
-// from `@deepseek-ai/dsh-client-ui-settings`. The reactive shape
-// (`getSnapshot/subscribe/set/unset`) is the one this card already speaks.
-import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
+import { useRef, useState, type ReactElement } from 'react'
+import { IconChevronDownOutlineRegular, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
+// Type-only: the Plugins page's SlotMap merge ('plugins.row.config') and the
+// `ConfigPageForm` owner props it supplies.
+import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
+// Type-only: `ConfigFormSnapshot` (the state carrier inside `ConfigPageForm`).
+import type { ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Import the pure type surface from `../shared`, NOT from `../index`.
 // `../index` pulls in `@deepseek-ai/schemastery` as a runtime value; doing so
 // would drag a `require("@deepseek-ai/schemastery")` into the client bundle,
@@ -27,47 +32,36 @@ import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 // word or package factory, so the plugin would fail to load with
 // "missed the module table".
 import type { RejectMode, RejectPolicySettings } from '../shared'
+import { REJECT_MODES } from '../shared'
 import css from './RejectPolicyCard.module.css'
 
-/** Injected business face from the client plugin. */
-export interface RejectPolicyCardInjected {
-  /** Live settings scope for the `reject-policy` namespace. */
-  scope: SettingsScope<RejectPolicySettings>
-}
-
-/** Full component props: locale seat + injected scope. */
+/** Full component props: Plugins page runtime seat + locale copy. */
 export type RejectPolicyCardProps =
+  & PropsRuntime<'plugins.row.config'>
   & PropsLocale<'reject-policy'>
-  & InjectFace<RejectPolicyCardInjected>
+  & InjectFace<Record<string, never>>
 
 /**
- * Render the reject-policy card.
- * @param props - locale copy and the bound settings scope.
- * @returns the card, or nothing while the namespace is not served.
+ * Render the reject-policy configuration page.
+ * @param props - the plugin view asked for, or the form with its snapshot and write actions.
+ * @returns the one-liner, the form, or nothing while the namespace is not served.
  */
 export function RejectPolicyCard(props: RejectPolicyCardProps): ReactElement | null {
-  const { t } = props
-  const scope = props.scope
-  const snapshot = useSyncExternalStore(
-    (cb) => scope.subscribe(cb),
-    () => scope.getSnapshot(),
-  )
-  const available = snapshot.status === 'ready'
-  if (!available) return null
+  const { t, view } = props
+  if (view === 'summary') return <p className={css.summary}>{t('description')}</p>
+
+  const form = props.form
+  const snapshot = form?.state as ConfigFormSnapshot<RejectPolicySettings> | undefined
+  if (form === undefined || snapshot === undefined || snapshot.status !== 'ready') return null
 
   // Layered resolution: user overrides base; absent user keys fall back to
-  // base; absent base falls back to the schema default.
-  // For `mode` the host's installSection entry sets `base = 'stop'`, so the
-  // base layer is always present once the host is mounted.
-  // The runtime exposes `base` as `unknown`; the installSection contract
+  // base; absent base falls back to the schema default ('stop').
+  // The runtime exposes `base` as `unknown`; the plugin's volatile Config
   // narrows it back to `RejectPolicySettings` here.
   const base: RejectPolicySettings | undefined = snapshot.base as RejectPolicySettings | undefined
   const baseValue: RejectMode = base?.mode ?? 'stop'
   const savedValue: RejectMode = snapshot.value?.mode ?? baseValue
 
-  const [open, setOpen] = useState(false)
-  // Staged draft: undefined means "no edit pending". A RejectMode means the
-  // user picked one of the dropdown items and the change is waiting on Save.
   const [staged, setStaged] = useState<RejectMode | undefined>(undefined)
   const [menuOpen, setMenuOpen] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -89,22 +83,18 @@ export function RejectPolicyCard(props: RejectPolicyCardProps): ReactElement | n
     if (!dirty || !writable || staged === undefined) return
     setSaving(true)
     setFailed(false)
-    let landed = true
+    let landed = false
     try {
       if (staged === baseValue) {
-        // The staged edit matches the cordis `base`: clear the user
+        // The staged edit matches the composition `base`: clear the user
         // override instead of writing a redundant value.
-        await scope.unset('mode')
+        landed = await form.mutate([{ op: 'unset', path: ['mode'] }])
       } else {
-        await scope.set('mode', staged)
+        landed = await form.mutate([{ op: 'set', path: ['mode'], value: staged }])
       }
     } catch (_writeFailure) {
       landed = false
     }
-    // The scope snapshot updates synchronously after set/unset on the
-    // shared describe mirror; trust the new read-back rather than guess.
-    const fresh = scope.getSnapshot()
-    landed = landed && fresh.value?.mode === staged
     setSaving(false)
     setFailed(!landed)
     if (landed) setStaged(undefined)
@@ -120,76 +110,56 @@ export function RejectPolicyCard(props: RejectPolicyCardProps): ReactElement | n
     t(value === 'stop' ? 'option.stop' : 'option.default')
 
   return (
-    <li className={`${css.card} ${open ? css.cardOpen : ''}`}>
-      <button
-        type="button"
-        className={css.header}
-        aria-expanded={open}
-        aria-label={`${t(open ? 'collapse' : 'expand')}: ${t('title')}`}
-        onClick={() => { setOpen(!open) }}
-      >
-        <span className={css.headText}>
-          <span className={css.name}>{t('title')}</span>
-          <span className={css.description}>{t('description')}</span>
-        </span>
-        <IconChevronDownOutline14 size={14} className={css.chevron} />
-      </button>
-      {open ? (
-        <div className={css.body}>
-          {!writable ? (
-            <p className={css.readOnly} role="status">{t('readOnly')}</p>
-          ) : null}
-          <div className={css.field}>
-            <div className={css.fieldHead}>
-              <span className={css.label}>{t('field.mode')}</span>
-              <Menu
-                open={menuOpen}
-                anchor={(
-                  <button
-                    ref={anchorRef}
-                    type="button"
-                    className={`${css.dropdownTrigger} ${menuOpen ? css.dropdownOpen : ''}`}
-                    onClick={() => { setMenuOpen(!menuOpen) }}
-                    disabled={!writable}
-                  >
-                    <span>{labelFor(draftValue)}</span>
-                    <IconChevronDownOutline14 size={14} className={css.dropdownChevron} />
-                  </button>
-                )}
-                items={[
-                  { id: 'stop', label: t('option.stop') },
-                  { id: 'default', label: t('option.default') },
-                ]}
-                selectedId={draftValue}
-                onSelect={onPick}
-                onClose={() => { setMenuOpen(false) }}
-                side="bottom"
-                align="start"
-              />
-            </div>
-            <p className={css.hint}>{t('field.mode.hint')}</p>
-          </div>
-          <div className={css.footer}>
-            {failed ? <p className={css.readOnly} role="status">{t('saveFailed')}</p> : null}
-            <button
-              type="button"
-              className={css.discard}
-              disabled={!dirty || saving}
-              onClick={onDiscard}
-            >
-              {t('discard')}
-            </button>
-            <button
-              type="button"
-              className={css.save}
-              disabled={!dirty || !writable || saving}
-              onClick={() => { void onSave() }}
-            >
-              {t(saving ? 'saving' : 'save')}
-            </button>
-          </div>
-        </div>
+    <div className={css.page}>
+      {!writable ? (
+        <p className={css.readOnly} role="status">{t('readOnly')}</p>
       ) : null}
-    </li>
+      <div className={css.field}>
+        <div className={css.fieldHead}>
+          <span className={css.label}>{t('field.mode')}</span>
+          <Menu
+            open={menuOpen}
+            anchor={(
+              <button
+                ref={anchorRef}
+                type="button"
+                className={`${css.dropdownTrigger} ${menuOpen ? css.dropdownOpen : ''}`}
+                onClick={() => { setMenuOpen(!menuOpen) }}
+                disabled={!writable}
+              >
+                <span>{labelFor(draftValue)}</span>
+                <IconChevronDownOutlineRegular size={14} className={css.dropdownChevron} />
+              </button>
+            )}
+            items={REJECT_MODES.map(mode => ({ id: mode, label: labelFor(mode) }))}
+            selectedId={draftValue}
+            onSelect={onPick}
+            onClose={() => { setMenuOpen(false) }}
+            side="bottom"
+            align="start"
+          />
+        </div>
+        <p className={css.hint}>{t('field.mode.hint')}</p>
+      </div>
+      <div className={css.footer}>
+        {failed ? <p className={css.readOnly} role="status">{t('saveFailed')}</p> : null}
+        <button
+          type="button"
+          className={css.discard}
+          disabled={!dirty || saving}
+          onClick={onDiscard}
+        >
+          {t('discard')}
+        </button>
+        <button
+          type="button"
+          className={css.save}
+          disabled={!dirty || !writable || saving}
+          onClick={() => { void onSave() }}
+        >
+          {t(saving ? 'saving' : 'save')}
+        </button>
+      </div>
+    </div>
   )
 }

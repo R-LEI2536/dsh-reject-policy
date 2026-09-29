@@ -6,6 +6,9 @@
     - id: reject-policy
       name: 'dsh-reject-policy'
       config:
+        # mode 是 volatile 运行时字段（默认 'stop'），勿写入 bundle patch；
+        # 运行时编辑落在 profile 的 cordis.patch.yml（Plugins 页 row Configure
+        # 或 ctx.settings.update('reject-policy', { mode: ... })）。
         # 触发本插件行为的 tool 名列表；空数组表示全部被拒 tool 都触发。
         stopOnRejectTools: []
         # 按 tool 名覆盖拒绝时返回给模型的文本。未命中走 defaultMessage。

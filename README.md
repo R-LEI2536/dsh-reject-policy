@@ -13,7 +13,7 @@ The plugin does not modify DSH source code. Both behaviors attach to existing wa
 
 ## Behavior modes
 
-`mode` lives in `settings.reject-policy` (namespace `REJECT_POLICY_SETTINGS_NAMESPACE`).
+`mode` is a **volatile Config field** (see [Configuration](#configuration)); the settings namespace (entry id) is `REJECT_POLICY_SETTINGS_NAMESPACE` (`reject-policy`).
 
 | `mode` | message configured | message overridden | turn stopped |
 |---|---|---|---|
@@ -47,6 +47,7 @@ The plugin's `Config` is the schemastery schema for the patch entry. The consume
     - id: reject-policy
       name: 'dsh-reject-policy'
       config:
+        mode: 'stop'                    # optional; 'stop' (default) | 'default'
         stopOnRejectTools: []           # empty = every rejected tool triggers this plugin
         messages:                       # per-tool override; falls back to defaultMessage
           bash: 'The user rejected your bash call. ...'
@@ -55,26 +56,31 @@ The plugin's `Config` is the schemastery schema for the patch entry. The consume
 
 | key | type | default | meaning |
 |---|---|---|---|
-| `stopOnRejectTools` | `string[]` | `[]` | Tool names whose rejection triggers the plugin. Empty = all. |
+| `mode` | `'default' \| 'stop'` | `'stop'` | volatile: `'stop'` rewrites + halts the turn; `'default'` rewrites only when a message is configured. |
+| `stopOnRejectTools` | `string[]` | `[]` | volatile: tool names whose rejection triggers the plugin. Empty = all. |
 | `messages` | `Record<string, string>` | `{}` | Per-tool override for the denial text. |
 | `defaultMessage` | `string` | `undefined` | Template applied when `messages[toolName]` is missing. Supports `{tool}` and `{name}` placeholders. |
 
 Resolution order: `messages[toolName]` → `defaultMessage` (template expansion) → official original text.
 
-## Runtime settings
+## Runtime editing
 
-Namespace: `reject-policy` (exported as `REJECT_POLICY_SETTINGS_NAMESPACE`).
+`mode` and `stopOnRejectTools` are **volatile Config fields**: they can be edited at runtime without
+restarting DSH. The edit is written to the profile patch (`<profile>/cordis.patch.yml`) and the running
+plugin picks the new value up on the next rejection (the Loader updates the volatile references in place).
 
-| key | type | default | meaning |
-|---|---|---|---|
-| `mode` | `'default' \| 'stop'` | `'stop'` | `'stop'` rewrites + halts; `'default'` rewrites only when configured. |
-| `stopOnRejectTools` | `string[]` | `[]` | Mirrors the patch config; runtime edits override. |
+Two ways to edit:
 
-Toggle at runtime:
+1. **Plugins page** — open Plugins > `dsh-reject-policy` > **Configure** on the `reject-policy` row (this
+   registers the row's configuration page through the `plugins.row.config` slot). The page exposes the
+   `mode` dropdown with Save / Discard.
+2. **Host API** — mirror of the settings service:
 
-```ts
-ctx.settings.update(REJECT_POLICY_SETTINGS_NAMESPACE, { mode: 'default' })
-```
+   ```ts
+   ctx.settings.update(REJECT_POLICY_SETTINGS_NAMESPACE, { mode: 'default' })
+   ```
+
+Both paths validate through the plugin's Config schema; an invalid write is refused and the patch is not modified.
 
 ## Model Experience
 
@@ -103,13 +109,13 @@ the user.
 
 - **`OFFICIAL_REJECTION_TEMPLATE` is hardcoded** to `the user rejected tool "{name}"`. If upstream DSH rewrites that string in `serviceAsk`, this plugin silently stops detecting rejections (no error, no warning — just no behavior). `pnpm run ci:drift` (wired into `pnpm test` / `pnpm build`) greps the installed `@deepseek-ai/dsh-tools` source for the prefix and exits 1 if it has drifted — run `pnpm test` or `pnpm build` after upgrading DSH to catch this locally.
 - **Coverage** is limited to tool calls that go through the agent loop. Harness-internal bash and other out-of-loop tool calls are not observable here.
-- **`mode` defaults to `'stop'`**, which closes the turn on the very first rejection. Consumers that want "rewrite only, never halt" should set `mode: 'default'` at install time or toggle it through settings.
-- **The plugin does not broadcast** `mode` changes to UI. Settings changes are silent on the client side.
+- **`mode` defaults to `'stop'`**, which closes the turn on the very first rejection. Consumers that want "rewrite only, never halt" should set `mode: 'default'` at install time or toggle it through the Plugins page.
+- **The card exposes only `mode`.** `stopOnRejectTools` is runtime-editable through `ctx.settings.update` but has no UI control on the row page yet.
 
 ## Reference
 
 - [docs/DESIGN.md](./docs/DESIGN.md) — design rationale, implementation mechanism, rejected alternatives.
-- `@deepseek-ai/dsh-tools` — upstream `serviceAsk` rejection flow that this plugin detects (`packages/core/tools/src/index.ts:1707`).
+- `@deepseek-ai/dsh-tools` — upstream `serviceAsk` rejection flow that this plugin detects (`packages/core/tools/src/index.ts:1755`).
 
 ## Verification
 

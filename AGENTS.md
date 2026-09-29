@@ -5,19 +5,22 @@ rejected, and optionally halts the turn after the rejection.
 
 ## Project
 
-- Standalone DSH plugin package (version `0.2.2`, `name = dsh-reject-policy`).
+- Standalone DSH plugin package (version `0.3.0`, `name = dsh-reject-policy`).
 - Lives at the repo root, deliberately **not** inside a `packages/` directory
   — it is deployment-side composition, not an official upstream package.
 - Two halves compiled into one published surface:
   - **Host half** — Node/Cordis plugin (`src/index.ts`); rewrites denial text
     on `tools/post-execute` and returns `{ kind: 'reject' }` on `agent/pre-step`
-    when `mode === 'stop'`.
+    when `mode === 'stop'`. `mode` / `stopOnRejectTools` are volatile Config
+    fields; `messages` / `defaultMessage` stay patch-only.
   - **Client half** — browser/Cordis client plugin (`src/client/`); renders
-    one settings card under the `reject-policy` namespace.
+    the reject-policy configuration page on the Plugins page via the
+    `plugins.row.config` slot (key `dsh-reject-policy#reject-policy`).
 - The plugin id, the cordis patch id, and the settings namespace are all the
   same string: `reject-policy` (see `REJECT_POLICY_SETTINGS_NAMESPACE` in
-  `src/shared.ts`). The package `name` keeps the `dsh-` prefix; the runtime
-  ids do not.
+  `src/shared.ts`). The `plugins.row.config` key joins the package name with
+  that id (`REJECT_POLICY_ROW_CONFIG_KEY`). The package `name` keeps the
+  `dsh-` prefix; the runtime ids do not.
 - Published entrypoints (`package.json#exports`):
   - `.` → host runtime
   - `./client` → client runtime
@@ -56,9 +59,11 @@ Run from the repo root with `pnpm`.
 
 ## Architecture
 
-- `src/index.ts` — host plugin. Exports `name`, `Config`, `Config` (schema),
-  `apply(ctx, config)`, `OFFICIAL_REJECTION_TEMPLATE`, `resolveMessage`,
-  `isStopPending`, `clearStopPending`, plus the re-exports from `shared.ts`.
+- `src/index.ts` — host plugin. Exports `name`, `Config` (interface, the
+  patch-facing input shape, all-optional), `Config` (const, the schemastery
+  schema), `RuntimeConfig` (resolved apply-facing shape), `apply(ctx, config)`,
+  `OFFICIAL_REJECTION_TEMPLATE`, `resolveMessage`, `isStopPending`,
+  `clearStopPending`, plus the re-exports from `shared.ts`.
   - `tools/post-execute` listener: when `exec.agent` exists, the tool name is
     in `stopOnRejectTools`, and `result.error.message` literally matches
     `the user rejected tool "<name>"` → return `{ kind: 'block', feedback }`
@@ -67,21 +72,37 @@ Run from the repo root with `pnpm`.
   - `agent/pre-step` listener: if the flag is set, delete it and return
     `{ kind: 'reject' }` so the agent loop closes the turn with
     `kind: 'blocked'`.
-  - Augments `@deepseek-ai/cordis`'s `Context` with a typed `settings`
-    service (mirrors the in-monorepo declaration; external plugins do not
-    transitively see it from npm).
+  - The schema marks `mode` / `stopOnRejectTools` with `.volatile()`: runtime
+    edits land in `<profile>/cordis.patch.yml` and the Loader updates the
+    volatile references in place (`loader/volatile-update`, no remount). Both
+    listeners read `config.mode.get()` / `config.stopOnRejectTools.get()` at
+    event time, so no `loader/volatile-update` subscription is needed.
+  - `apply` registers `ctx.settings.configure({ auto: false }, ctx.fiber)`
+    via a conditional `ctx.inject(['settings'], ...)` block (needs
+    `import type {} from '@deepseek-ai/dsh-settings'` for typing; a host
+    without the settings service simply never runs the block).
   - Mounts a one-shot `console.warn` so users notice the literal-template
     coupling. Keep the warning when refactoring.
 - `src/shared.ts` — **pure type/constant surface** shared by host and client.
   Zero runtime imports. The client bundle's purity gate forbids adding
-  runtime deps here. Re-exports the settings namespace constant so the host
-  and client pick the same key by construction.
-- `src/client/index.ts` — registers one `settings.plugin.item` slot entry.
-  All `@deepseek-ai/dsh-client-*` imports are `import type {}` for slot-map
-  augmentation only — value imports would break the bundle.
-- `src/client/RejectPolicyCard.tsx` — staged Save/Discard pattern over
-  `SettingsScope<RejectPolicySettings>`. When the staged edit equals the
-  cordis `base`, calls `scope.unset` instead of writing a redundant override.
+  runtime deps here. Re-exports the settings namespace constant plus the
+  package name and the `plugins.row.config` key, so host and client pick the
+  same ids by construction.
+- `src/client/index.ts` — registers the row configuration page while the Host
+  serves the `reject-policy` namespace: `ctx.configForms.whileServed([...],
+  () => ctx.slots.inject('plugins.row.config', () => ctx.slots.register({...},
+  RejectPolicyCard)))`. All `@deepseek-ai/dsh-client-*` imports are
+  `import type {}` for service/slot-map augmentation only — value imports
+  would break the bundle.
+- `src/client/RejectPolicyCard.tsx` — renders inside the Plugins page's row
+  detail view. Props: `PropsRuntime<'plugins.row.config'> & PropsLocale<...>`;
+  `view === 'summary'` yields the one-liner, `view === 'page'` renders the
+  staged Save/Discard form over the page-supplied `ConfigPageForm`
+  (`form.state` snapshot + `form.mutate`; `set`/`unset` become
+  `{ op: 'set'|'unset', path: ['mode'] }` ops and return `Promise<boolean>`).
+  When the staged edit equals the cordis `base`, sends `op: 'unset'` instead
+  of writing a redundant override. No self-subscription: the page re-renders
+  on describe-mirror updates.
 - `src/client/locales.ts` — `en` + `zh` dictionaries for the card. Add new
   keys to both objects.
 - `src/client/RejectPolicyCard.module.css` — CSS Modules; the
@@ -90,11 +111,13 @@ Run from the repo root with `pnpm`.
 - `cordis.patch.yml` — published patch referenced from
   `package.json#dsh.bundle.patch`. Carries default install-time config:
   `stopOnRejectTools: []`, a `bash` message override, and a `defaultMessage`
-  template.
+  template. `mode` is intentionally absent — the volatile default `'stop'`
+  applies.
 - `tests/reject-policy-check.mts` — mounts the plugin against a real
-  `cordis.Context` with a fake `settings` service, then drives
-  `tools/post-execute` and `agent/pre-step` waterfalls. No real approval,
-  no real agent loop.
+  `cordis.Context`, then drives `tools/post-execute` and `agent/pre-step`
+  waterfalls. Runtime mode switches write the volatile references directly
+  (`Symbol.for('cosmokit.volatile.write')`), the same in-place update the
+  Loader's `_commitVolatile` performs. No real approval, no real agent loop.
 - `scripts/check-official-template.ts` — drift guard described above.
 - `docs/DESIGN.md` — design rationale, the 2×2 mode/message matrix, rejected
   alternatives. Source of truth for "why" decisions; this file is the "how".
@@ -112,12 +135,22 @@ Run from the repo root with `pnpm`.
   `noFallthroughCasesInSwitch`, `noUnusedLocals`, `noUnusedParameters`.
   Optional fields are omitted with conditional spreads when their absence
   changes the inferred type (see `src/index.ts`'s `cfg` construction).
+- The runtime-editable surface is the **volatile split**: `mode` and
+  `stopOnRejectTools` are `.volatile()` Config fields; `messages` and
+  `defaultMessage` stay ordinary patch config (one-shot delivery, not live
+  rules — a deliberate DESIGN decision, do not flip without revisiting).
+- The public `Config` type is the patch-facing input shape; the schema const
+  is annotated `z<RuntimeConfig>` — the two-sided input/output types of a
+  volatile schema cannot bind to one `z<Config>` under
+  `exactOptionalPropertyTypes`. Do not "simplify" this back to a single
+  annotation; it will either fail typecheck or require a double cast.
 - Do **not** duplicate `OFFICIAL_REJECTION_TEMPLATE`; it is exported from
   `src/index.ts` and re-used by the drift check's prefix and the test
   fixture.
 - The plugin `name` and settings namespace are bare `reject-policy`. The
-  package `name` is `dsh-reject-policy`. Renaming one implies renaming the
-  other two plus the cordis patch `id` (`cordis.patch.yml`).
+  package `name` is `dsh-reject-policy` (`REJECT_POLICY_PACKAGE_NAME`).
+  Renaming one implies renaming the other two plus the cordis patch `id`
+  (`cordis.patch.yml`) and `REJECT_POLICY_ROW_CONFIG_KEY`.
 - The detection text is matched **literally**, including the leading `the`
   (lowercase). Do not lowercase-normalize — the published upstream message
   is itself lowercase.
@@ -130,7 +163,11 @@ Run from the repo root with `pnpm`.
   a given upstream train. **Note**: prerelease semver (`^0.1.0-rc.1`)
   does not float forward to later `0.1.x-rc.y` builds under node-semver's
   default prerelease rules — bump the range explicitly when chasing a
-  new train, and delete `pnpm-lock.yaml` before reinstalling.
+  new train, and delete `pnpm-lock.yaml` before reinstalling. On the
+  `0.1.7-rc.*` train also raise `@deepseek-ai/cordis` to `^4.0.4` and
+  `@deepseek-ai/schemastery` to `^3.18.4` — the train's transitive peers
+  require `~4.0.4` / `~3.18.4`, and lower versions lack the `.volatile()`
+  API (pnpm resolves the floor, not the train, from `^4.0.0` / `^3.0.0`).
 
 ## Pitfalls
 
@@ -146,7 +183,20 @@ Run from the repo root with `pnpm`.
 - **`mode` defaults to `'stop'`.** The very first rejection halts the turn.
   Consumers wanting "rewrite only, never halt" must explicitly install with
   `mode: 'default'` or set it at runtime via
-  `ctx.settings.update(REJECT_POLICY_SETTINGS_NAMESPACE, { mode: 'default' })`.
+  `ctx.settings.update(REJECT_POLICY_SETTINGS_NAMESPACE, { mode: 'default' })` —
+  which writes the profile patch and needs the target field to be volatile
+  (schema edits that make `mode` ordinary silently break this path).
+- **`settings.plugin.item` is retired on 0.1.7-rc.\*.** The card registers
+  into the Plugins page's `plugins.row.config` slot keyed
+  `<package name>#<row id>` (`REJECT_POLICY_ROW_CONFIG_KEY`). The row id must
+  match the `id:` in `cordis.patch.yml`; the package name must match
+  `package.json#name` — both are constants in `src/shared.ts`.
+- **`configForms` replaces `settingsScope`.** `ctx.configForms.get(ns)`
+  returns a `ConfigForm<T>` whose `set` / `unset` / `mutate` return
+  `Promise<boolean>` (no snapshot read-back needed). `whileServed` gates
+  registration on the Host serving the namespace. The card deliberately takes
+  the page-supplied `ConfigPageForm` (`form.state` + `form.mutate`) instead
+  of binding its own form service.
 - **Client bundle purity gate.** Never `import` (value) anything from
   `../index` inside `src/client/`. Value imports drag
   `@deepseek-ai/schemastery` into the browser bundle, which the loader's
@@ -161,13 +211,15 @@ Run from the repo root with `pnpm`.
 - **`tsc -p tsconfig.json` emits into `lib/types/`.** `tsdown` then bundles
   from `lib/types/index.js`. Do not delete `lib/types/` between the two
   steps; do not add a `clean` step to `tsdown` (it is `clean: false`
-  precisely to keep the `.d.ts` emit).
+  precisely to keep the `.d.ts` emit). The `Config` const must keep a
+  `z<RuntimeConfig>`-style annotation or the `.d.ts` emit fails with
+  TS2742 (portability through the `.pnpm` path).
 - **`pnpm-workspace.yaml` enables only the `esbuild` allow-build.** Add
   new entries here when adopting a new postinstall-step dep.
 - **No CI workflow, no lint, no formatter.** All gates are the four
   `pnpm` scripts above plus reviewer discipline.
 - **Upstream line numbers in `OFFICIAL_REJECTION_TEMPLATE`'s comments**
-  (`packages/core/tools/src/index.ts:1707` in `README.md`, `:1716` in
+  (`packages/core/tools/src/index.ts:1755` in `README.md` and
   `docs/DESIGN.md`) drift across DSH releases. Do not "fix" the constant
   to match the line — the constant must match the actual message text.
   Treat the line numbers as informational only; the drift check asserts
