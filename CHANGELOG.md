@@ -38,7 +38,11 @@ and the peer floor was raised to the rc.2 train.
 Verified on `0.1.7-rc.2`: `ci:drift` (upstream message unchanged at
 `packages/core/tools/src/index.ts:1755`), host `typecheck`, client
 `typecheck`, `test` (18/18), `build` all pass; client bundle purity holds
-(no `@deepseek-ai/schemastery` leak).
+(no `@deepseek-ai/schemastery` leak). Consumer-side live verification on
+the `dev_web` profile also passed: rejection rewrite, Plugins-page
+Configure card, volatile save into `cordis.patch.yml` (`mode: default`),
+and an immediate `stop`→`default` behavior change with no remount — see
+[docs/UPGRADE-0.1.7-LESSONS.md](./docs/UPGRADE-0.1.7-LESSONS.md).
 
 ## 0.2.2 (2026-09-11)
 

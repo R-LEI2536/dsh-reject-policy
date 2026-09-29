@@ -115,6 +115,7 @@ the user.
 ## Reference
 
 - [docs/DESIGN.md](./docs/DESIGN.md) — design rationale, implementation mechanism, rejected alternatives.
+- [docs/UPGRADE-0.1.7-LESSONS.md](./docs/UPGRADE-0.1.7-LESSONS.md) — the 0.1.7-rc.2 migration retrospective: live-test matrix, pitfalls (version floors, volatile typing, the retired Settings entry), and a reusable upgrade checklist.
 - `@deepseek-ai/dsh-tools` — upstream `serviceAsk` rejection flow that this plugin detects (`packages/core/tools/src/index.ts:1755`).
 
 ## Verification

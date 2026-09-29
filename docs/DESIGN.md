@@ -102,6 +102,9 @@ plugin-reject-policy/
 
 ## 8. 验证状态
 
+> 下表为开发期的仓库内验证；0.3.0（0.1.7-rc.2 对齐）的真机消费侧验证见
+> [UPGRADE-0.1.7-LESSONS.md](./UPGRADE-0.1.7-LESSONS.md) §2 验证矩阵。
+
 | 检查 | 状态 |
 |---|---|
 | `plugin-reject-policy/tests/reject-policy-check.mts` | ✅ 18/18 通过（settings API 迁移到 `installSection` 后重跑验证） |
