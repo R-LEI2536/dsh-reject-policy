@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.4.0 (2026-10-02)
+
+DSH `0.2.0-rc.1`+ alignment (target train `0.2.0-rc.2`). Per the
+[DSH 0.2.0 upgrade plan](../deepseek-harness/DSH-0.2.0-UPGRADE-PLAN.md) §2.2:
+this train's boot compatibility gate rejects every `0.1.7-*` peer range, so
+the peer floor moves and nothing else. **No `src/**` change was required** —
+the two upstream surfaces this plugin consumes are byte-identical between
+`0.1.7-rc.2` and `0.2.0-rc.2` (see below).
+
+- chore(deps): every `@deepseek-ai/dsh-*` peer range `^0.1.7-rc.1` →
+  `^0.2.0-rc.1` (10 entries). `^0.2.0-rc.1` admits `0.2.0-rc.1/rc.2/0.3/0.4…`
+  and rejects `0.3.0`, so later rc builds of this train need no further bump.
+  `@deepseek-ai/cordis` (`^4.0.4`) and `@deepseek-ai/schemastery` (`^3.18.4`)
+  are untouched — the gate skips non-`dsh-*` names and both libraries are
+  unchanged across the corridor.
+- chore(deps): `pnpm-lock.yaml` regenerated from scratch; all 10
+  `@deepseek-ai/dsh-*` resolutions moved `0.1.7-rc.2` → `0.2.0-rc.2`.
+- **compat**: the raised floor is one-directional — this version is now
+  rejected on an `0.1.7-rc.*` host (`disabling profile plugin row` /
+  `incompatible-version` at install). Ship it in the same batch as the host
+  upgrade.
+
+Upstream contract check for this plugin (both trees verified byte-identical):
+
+- `packages/core/tools/src/**` — `OFFICIAL_REJECTION_TEMPLATE` still
+  `the user rejected tool "<name>"` at the same line (`index.ts:1755`); the
+  `tools/post-execute` and `agent/pre-step` waterfalls are unchanged.
+- `packages/client/ui-plugin-manager/src/client/{slot-contract,config-ledger}.ts`
+  — the `plugins.row.config` slot, `PluginConfigViewProps` and
+  `ConfigPageForm` are unchanged; the corridor's two reverted
+  `rowSwitches`/`bundle-switch` features never existed in `0.1.7-rc.2`.
+- `packages/client/ui-settings/src/**` — zero diff, so `ctx.configForms` and
+  the `whileServed` gating are unchanged.
+
+Verified on `0.2.0-rc.2` devDeps: `ci:drift` (prefix found in the published
+`dsh-tools` bundle), host `typecheck`, client `typecheck`, `test` (18/18),
+and `build` all pass; client bundle purity holds (externals are only
+`react`, `react/jsx-runtime`, `@deepseek-ai/dsh-client-ui-primitives` — no
+schemastery/cordis leak). This is the in-repo (L1) layer only; a real
+`0.2.0-rc.2` host cold-start (boot-gate stderr), Plugins-page Configure card,
+volatile save, and the plan's `[unverified]` `config-editor` inheritance
+change still need live verification.
+
 ## 0.3.0 (2026-09-XX)
 
 DSH `0.1.7-rc.1`+ alignment (target train `0.1.7-rc.2`). Per the

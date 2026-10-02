@@ -5,7 +5,9 @@ rejected, and optionally halts the turn after the rejection.
 
 ## Project
 
-- Standalone DSH plugin package (version `0.3.0`, `name = dsh-reject-policy`).
+- Standalone DSH plugin package (version `0.4.0`, `name = dsh-reject-policy`).
+- Targets the DSH `0.2.0-rc.*` train (`^0.2.0-rc.1` peer ranges); installs on
+  an `0.1.7-rc.*` host are rejected by the boot compatibility gate.
 - Lives at the repo root, deliberately **not** inside a `packages/` directory
   — it is deployment-side composition, not an official upstream package.
 - Two halves compiled into one published surface:
@@ -43,8 +45,9 @@ Run from the repo root with `pnpm`.
 - `pnpm run typecheck` — `tsc --noEmit` against `tsconfig.json` (host tree).
 - `pnpm run typecheck:client` — `tsc --noEmit -p tsconfig.client.json`
   (client tree; `noEmit: true`).
-- `pnpm run ci:drift` — greps the installed `@deepseek-ai/dsh-tools` source
-  for the rejection-text prefix; exits `1` if upstream drifted. **Always run
+- `pnpm run ci:drift` — greps the installed `@deepseek-ai/dsh-tools` for the
+  rejection-text prefix (tries `src/index.ts` in an unpacked dev tree, then
+  the published `lib/index.js`); exits `1` if upstream drifted. **Always run
   after upgrading `@deepseek-ai/dsh-tools`.**
 - `pnpm run test` — `pnpm ci:drift` then `tsx tests/reject-policy-check.mts`.
   The check file has 18 assertions across 7 numbered cases; it uses `tsx`
@@ -168,6 +171,34 @@ Run from the repo root with `pnpm`.
   `@deepseek-ai/schemastery` to `^3.18.4` — the train's transitive peers
   require `~4.0.4` / `~3.18.4`, and lower versions lack the `.volatile()`
   API (pnpm resolves the floor, not the train, from `^4.0.0` / `^3.0.0`).
+  The `0.2.0-rc.*` train keeps those same cordis/schemastery versions;
+  only the `@deepseek-ai/dsh-*` ranges moved to `^0.2.0-rc.1`.
+- Write the train range as `^0.2.0-rc.1`, never `^0.2.0` or `~0.2.0`:
+  a caret on a prerelease base admits later prereleases of the same
+  `0.x` line (`>=0.2.0-rc.1 <0.3.0-0`), while `^0.2.0` excludes
+  prereleases entirely and is rejected by the host today. Never pin an
+  exact `0.2.0-rc.N` — the next rc is rejected again.
+
+## The 0.2.0 boot compatibility gate
+
+`@deepseek-ai/dsh-app-boot`'s `evaluatePluginCompatibility` walks only
+`peerDependencies` whose name is `@deepseek-ai/dsh` or starts with
+`@deepseek-ai/dsh-`, and tests `semver.satisfies(runtimeVersion, range, {
+includePrerelease: true })`. Consequences that bite this repo:
+
+- `peerDependenciesMeta.optional` is **not** read — marking a dsh peer
+  optional buys no exemption.
+- A normal plugin row that fails the gate is flipped to `disabled` and the
+  boot stderr prints `dsh: disabling profile plugin row "<row id>"`.
+- A bundle package (`package.json#dsh.bundle`) that fails is skipped
+  **whole** (`dsh: skipping profile bundle "<package>"`), so none of its
+  rows load.
+- Installation fails earlier with `incompatible-version`; the printed
+  `dsh plugin allow-version ... --accept-risk` exemption is keyed to the
+  exact plugin version × exact runtime version and does not survive an
+  upgrade on either side.
+- `--dump-config` is **not** a substitute for reading boot stderr — a
+  rejected row still appears in the dump.
 
 ## Pitfalls
 

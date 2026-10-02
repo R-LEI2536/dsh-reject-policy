@@ -26,6 +26,8 @@ The plugin does not modify DSH source code. Both behaviors attach to existing wa
 
 ## Installation
 
+Requires DSH `0.2.0-rc.1`+. The `@deepseek-ai/dsh-*` peer ranges are `^0.2.0-rc.1`; the host's boot compatibility gate rejects this plugin on an `0.1.7-rc.*` host, so install it in the same batch as the host upgrade.
+
 ```sh
 dsh plugin --profile web add "link:/path/to/dsh-reject-policy"
 ```
