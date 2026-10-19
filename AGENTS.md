@@ -5,9 +5,9 @@ rejected, and optionally halts the turn after the rejection.
 
 ## Project
 
-- Standalone DSH plugin package (version `0.4.0`, `name = dsh-reject-policy`).
-- Targets the DSH `0.2.0-rc.*` train (`^0.2.0-rc.1` peer ranges); installs on
-  an `0.1.7-rc.*` host are rejected by the boot compatibility gate.
+- Standalone DSH plugin package (version `0.5.0`, `name = dsh-reject-policy`).
+- Targets the DSH `0.2.1-rc.*` train (`^0.2.1-rc.1` peer ranges); installs on
+  an `0.2.0-rc.*` or older host are rejected by the boot compatibility gate.
 - Lives at the repo root, deliberately **not** inside a `packages/` directory
   — it is deployment-side composition, not an official upstream package.
 - Two halves compiled into one published surface:
@@ -57,6 +57,12 @@ Run from the repo root with `pnpm`.
 - Install into a DSH profile (consumer-side, not part of this repo's CI):
   - `dsh plugin --profile web add "link:/home/hive/projects/dsh-plugin_dev/dsh-reject-policy"`
   - `dsh plugin --profile web add "github:<owner>/dsh-reject-policy#main"`
+- Upgrade work runs on a branch in a nested git worktree
+  (`.worktrees/<name>`, git-ignored) because the session file sandbox is
+  rooted at this repo; the main checkout stays untouched until merge.
+  Create with `git worktree add .worktrees/<name> -b <branch> HEAD` and
+  install inside it with an absolute `--store-dir` pointing at the main
+  checkout's `.pnpm-store`.
 - No lint, no formatter, no pre-commit hooks, no GitHub Actions workflow is
   configured in this repo.
 
@@ -163,28 +169,30 @@ Run from the repo root with `pnpm`.
   git-ignored. Do not commit secrets; do not echo them into docs.
 - `pnpm-lock.yaml` is the source of truth for installed versions; the
   `@deepseek-ai/dsh-*` peer-dep range is the only knob that pins us to
-  a given upstream train. **Note**: prerelease semver (`^0.1.0-rc.1`)
-  does not float forward to later `0.1.x-rc.y` builds under node-semver's
-  default prerelease rules — bump the range explicitly when chasing a
-  new train, and delete `pnpm-lock.yaml` before reinstalling. On the
-  `0.1.7-rc.*` train also raise `@deepseek-ai/cordis` to `^4.0.4` and
-  `@deepseek-ai/schemastery` to `^3.18.4` — the train's transitive peers
-  require `~4.0.4` / `~3.18.4`, and lower versions lack the `.volatile()`
-  API (pnpm resolves the floor, not the train, from `^4.0.0` / `^3.0.0`).
-  The `0.2.0-rc.*` train keeps those same cordis/schemastery versions;
-  only the `@deepseek-ai/dsh-*` ranges moved to `^0.2.0-rc.1`.
-- Write the train range as `^0.2.0-rc.1`, never `^0.2.0` or `~0.2.0`:
+  a given upstream train. **Note**: prerelease semver does not float
+  forward across patch lines under node-semver's default prerelease
+  rules (`^0.2.0-rc.1` never resolves `0.2.1-rc.*`) — bump the range
+  explicitly when chasing a new train, and delete `pnpm-lock.yaml`
+  before reinstalling. The `0.2.1-rc.*` train also raises the base
+  libraries: `@deepseek-ai/cordis` `~4.0.5` and
+  `@deepseek-ai/schemastery` `~3.18.5` (the published dsh packages peer
+  on those exact minors, and `~` keeps a single copy in the dev tree;
+  the 0.1.7/0.2.0 trains used `^4.0.4` / `^3.18.4`).
+- Write the train range as `^0.2.1-rc.1`, never `^0.2.1` or `~0.2.1`:
   a caret on a prerelease base admits later prereleases of the same
-  `0.x` line (`>=0.2.0-rc.1 <0.3.0-0`), while `^0.2.0` excludes
+  `0.x` line (`>=0.2.1-rc.1 <0.3.0-0`), while `^0.2.1` excludes
   prereleases entirely and is rejected by the host today. Never pin an
-  exact `0.2.0-rc.N` — the next rc is rejected again.
+  exact `0.2.1-rc.N` — the next rc is rejected again.
 
-## The 0.2.0 boot compatibility gate
+## The boot compatibility gate
 
-`@deepseek-ai/dsh-app-boot`'s `evaluatePluginCompatibility` walks only
-`peerDependencies` whose name is `@deepseek-ai/dsh` or starts with
-`@deepseek-ai/dsh-`, and tests `semver.satisfies(runtimeVersion, range, {
-includePrerelease: true })`. Consequences that bite this repo:
+`@deepseek-ai/dsh-app-boot`'s `evaluatePluginCompatibility` prefers a plugin's
+own `engines.dsh` when present — peers are then ignored entirely — and
+otherwise walks only `peerDependencies` whose name is `@deepseek-ai/dsh` or
+starts with `@deepseek-ai/dsh-`, testing `semver.satisfies(runtimeVersion,
+range, { includePrerelease: true })`. This repo deliberately stays
+peer-based: no `engines.dsh`, one source of truth, and `workspace:` ranges are
+rejected inside `engines.dsh`. Consequences that bite this repo:
 
 - `peerDependenciesMeta.optional` is **not** read — marking a dsh peer
   optional buys no exemption.
@@ -247,14 +255,16 @@ includePrerelease: true })`. Consequences that bite this repo:
   TS2742 (portability through the `.pnpm` path).
 - **`pnpm-workspace.yaml` enables only the `esbuild` allow-build.** Add
   new entries here when adopting a new postinstall-step dep.
-- **No CI workflow, no lint, no formatter.** All gates are the four
-  `pnpm` scripts above plus reviewer discipline.
+- **No CI workflow, no lint, no formatter.** All gates are the five
+  `pnpm` scripts above (`typecheck`, `typecheck:client`, `ci:drift`, `test`,
+  `build`) plus reviewer discipline.
 - **Upstream line numbers in `OFFICIAL_REJECTION_TEMPLATE`'s comments**
   (`packages/core/tools/src/index.ts:1755` in `README.md` and
-  `docs/DESIGN.md`) drift across DSH releases. Do not "fix" the constant
-  to match the line — the constant must match the actual message text.
-  Treat the line numbers as informational only; the drift check asserts
-  on the stable string prefix `the user rejected tool "`, not on a line.
+  `docs/DESIGN.md`) drift across DSH releases (0.2.1-rc.2: `1763`). Do not
+  "fix" the constant to match the line — the constant must match the actual
+  message text. Treat the line numbers as informational only; the drift check
+  asserts on the stable string prefix `the user rejected tool "`, not on a
+  line.
 
 ## Maintenance
 

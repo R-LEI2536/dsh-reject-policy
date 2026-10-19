@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.5.0 (2026-10-19)
+
+DSH `0.2.1-rc.1`+ alignment (target train `0.2.1-rc.2`). Per the
+[DSH 0.2.1-rc.2 plugin upgrade guide](../deepseek-harness/DSH-0.2.1-rc.2-插件升级指南.md):
+this train's boot compatibility gate rejects every `0.2.0-rc.*` peer range, so
+the peer floor moves and **no `src/**` change was required** — every upstream
+surface this plugin consumes is unchanged (see below).
+
+- chore(deps): every `@deepseek-ai/dsh-*` peer range `^0.2.0-rc.1` →
+  `^0.2.1-rc.1` (10 entries). `^0.2.1-rc.1` admits `0.2.1-rc.1/rc.2` under
+  node-semver's prerelease rules *and* the boot gate's `includePrerelease`
+  check, so later rc builds of this train need no further bump.
+- chore(deps): raise the base libraries to the 0.2.1 train's floors:
+  `@deepseek-ai/cordis` `^4.0.4` → `~4.0.5`, `@deepseek-ai/schemastery`
+  `^3.18.4` → `~3.18.5` (the published `dsh-*` packages peer on those exact
+  minors; `~` keeps one copy in the dev tree).
+- chore(deps): `pnpm-lock.yaml` regenerated from scratch; it resolves
+  `@deepseek-ai/dsh-*` at `0.2.1-rc.2`, cordis `4.0.5`, schemastery
+  `3.18.5`, with no `0.2.0-rc.*` entries and no
+  `@deepseek-ai/dsh-invariants`.
+- chore(repo): upgrade work moved onto a nested git worktree
+  (`.worktrees/`, git-ignored) so the main checkout stays untouched until
+  merge.
+- **compat**: the raised floor is one-directional — this version is now
+  rejected on an `0.2.0-rc.*` (or older) host (`disabling profile plugin row`
+  / `incompatible-version` at install). Ship it in the same batch as the host
+  upgrade.
+
+Upstream contract check against the `0.2.1-rc.2` source tree (no
+plugin-facing change on any consumed surface):
+
+- `packages/core/tools/src/index.ts` — `serviceAsk` still denies with
+  `the user rejected tool "<name>"` (text unchanged; line drifted
+  `1755` → `1763`); the `tools/post-execute` waterfall and its
+  `PostToolDecision` (`accept` / `block`) are unchanged.
+- `packages/core/agent/src/runtime-types.ts` — `agent/pre-step` and
+  `PreStepDecision` (still includes `{ kind: 'reject' }`) are unchanged.
+- `packages/settings/settings/src/index.ts` — `ctx.settings.configure({
+  auto }, owner)` is unchanged.
+- Client contracts: `plugins.row.config` + `PluginConfigViewProps` /
+  `ConfigPageForm { state, mutate }`, `ConfigFormSnapshot`,
+  `ConfigForms.whileServed`, `ctx.slots.inject/register`,
+  `LocaleNamespaceMap`, `Menu` / `IconChevronDownOutlineRegular` are all
+  unchanged.
+- Guide §3 checklist: no hit in this plugin (no `./invariant`, no
+  `mode: both`, no removed client symbols, no web-provider / model-label
+  slot usage, no removed composition keys).
+
+Verified on `0.2.1-rc.2` devDeps: `ci:drift` (prefix found in the published
+`dsh-tools` bundle), host `typecheck`, client `typecheck`, `test` (18/18),
+`build`, and client bundle purity (externals are only `react`,
+`react/jsx-runtime`, `@deepseek-ai/dsh-client-ui-primitives` — no
+schemastery/cordis leak). This is the in-repo (L1) layer only; a real
+`0.2.1-rc.2` host cold-start (boot-gate stderr), the Plugins-page Configure
+card, volatile save, and a real rejection are still to be verified live.
+
 ## 0.4.0 (2026-10-02)
 
 DSH `0.2.0-rc.1`+ alignment (target train `0.2.0-rc.2`). Per the
