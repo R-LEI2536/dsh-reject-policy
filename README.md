@@ -40,6 +40,9 @@ To install from a GitHub checkout:
 dsh plugin --profile web add "github:<owner>/dsh-reject-policy#main"
 ```
 
+The repository ships the built `lib/` directory (it is committed, not
+git-ignored) because GitHub-source installs do not run a build step.
+
 ## Configuration
 
 The plugin's `Config` is the schemastery schema for the patch entry. The consumer's `cordis.patch.yml` carries:

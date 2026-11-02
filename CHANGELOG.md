@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.1 (2026-11-02)
+
+Packaging fix for GitHub-source installs; no `src/**` change, behavior is
+identical to 0.5.0.
+
+- fix(repo): commit the built `lib/` output (remove it from `.gitignore`).
+  GitHub-source installs
+  (`dsh plugin --profile <name> add "github:<owner>/dsh-reject-policy#main"`)
+  get no build step, so the previously ignored `lib/index.js` was missing and
+  the host failed to activate the plugin with
+  `ERR_MODULE_NOT_FOUND: .../dsh-reject-policy/lib/index.js`. Rebuild
+  (`pnpm run build`) before every tag from now on.
+
 ## 0.5.0 (2026-10-19)
 
 DSH `0.2.1-rc.1`+ alignment (target train `0.2.1-rc.2`). Per the

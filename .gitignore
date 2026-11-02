@@ -1,7 +1,9 @@
 node_modules/
 # pnpm content-addressable store (paired with node_modules/.pnpm/)
 .pnpm-store/
-lib/
+# lib/ is committed on purpose: GitHub-source installs
+# (`github:<owner>/<repo>`) get no build step, so the built host/client
+# bundles must be in git. Rebuild before tagging.
 .DS_Store
 *.log
 .env

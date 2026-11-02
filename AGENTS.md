@@ -5,7 +5,7 @@ rejected, and optionally halts the turn after the rejection.
 
 ## Project
 
-- Standalone DSH plugin package (version `0.5.0`, `name = dsh-reject-policy`).
+- Standalone DSH plugin package (version `0.5.1`, `name = dsh-reject-policy`).
 - Targets the DSH `0.2.1-rc.*` train (`^0.2.1-rc.1` peer ranges); installs on
   an `0.2.0-rc.*` or older host are rejected by the boot compatibility gate.
 - Lives at the repo root, deliberately **not** inside a `packages/` directory
@@ -54,6 +54,12 @@ Run from the repo root with `pnpm`.
   directly, no test framework.
 - `pnpm run build` — `pnpm ci:drift` then `tsc -p tsconfig.json` (emits
   `.d.ts` into `lib/types/`) then `tsdown` (bundles host + client).
+- `lib/` is **committed** (not git-ignored). GitHub-source installs
+  (`github:<owner>/dsh-reject-policy#main`) get no build step, so the built
+  host/client bundles must be in git — that is what makes
+  `dsh plugin add "github:..."` work at all. Run `pnpm run build` and commit
+  `lib/` before every tag; a tag without a fresh `lib/` reproduces the
+  `ERR_MODULE_NOT_FOUND` activation failure.
 - Install into a DSH profile (consumer-side, not part of this repo's CI):
   - `dsh plugin --profile web add "link:/home/hive/projects/dsh-plugin_dev/dsh-reject-policy"`
   - `dsh plugin --profile web add "github:<owner>/dsh-reject-policy#main"`
@@ -253,6 +259,12 @@ rejected inside `engines.dsh`. Consequences that bite this repo:
   precisely to keep the `.d.ts` emit). The `Config` const must keep a
   `z<RuntimeConfig>`-style annotation or the `.d.ts` emit fails with
   TS2742 (portability through the `.pnpm` path).
+- **`lib/` must be rebuilt and committed before every tag.** GitHub-source
+  installs consume whatever is committed in git — no `prepare`/build step
+  runs. A tag whose commit lacks `lib/index.js` installs "successfully" but
+  the host then fails to activate the plugin with `ERR_MODULE_NOT_FOUND:
+  .../dsh-reject-policy/lib/index.js` (and `dsh: warning: 1 entry did not
+  activate`). Run `pnpm run build`, commit `lib/`, then tag.
 - **`pnpm-workspace.yaml` enables only the `esbuild` allow-build.** Add
   new entries here when adopting a new postinstall-step dep.
 - **No CI workflow, no lint, no formatter.** All gates are the five
