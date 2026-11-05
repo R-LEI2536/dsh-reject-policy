@@ -73,7 +73,11 @@ export interface RuntimeConfig {
  * （patch 输入）与 `RuntimeConfig`（apply 输入）两个接口表达。
  */
 export declare const Config: z<RuntimeConfig>;
-/** 官方 serviceAsk 的拒因模板（packages/core/tools/src/index.ts:1755）。 */
+/**
+ * 官方审批拒绝写出的拒因模板。0.2.2-rc.1 起位于 execution pipeline
+ * （`packages/core/tools/src/pipeline.ts:460`，发布产物 `lib/pipeline.js`）；
+ * 旧训练在 `index.ts:1755` / `1763`。行号仅供定位，匹配靠字面前缀。
+ */
 export declare const OFFICIAL_REJECTION_TEMPLATE = "the user rejected tool \"{name}\"";
 /**
  * 解析一个 tool 的最终拒因：messages[name] → defaultMessage（带占位替换）→ undefined。
