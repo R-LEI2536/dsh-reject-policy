@@ -5,9 +5,12 @@ rejected, and optionally halts the turn after the rejection.
 
 ## Project
 
-- Standalone DSH plugin package (version `0.5.1`, `name = dsh-reject-policy`).
-- Targets the DSH `0.2.1-rc.*` train (`^0.2.1-rc.1` peer ranges); installs on
+- Standalone DSH plugin package (version `0.5.2`, `name = dsh-reject-policy`).
+- Targets DSH `0.2.1-rc.*` and `0.2.2-rc.1` (`^0.2.1-rc.1 || ^0.2.2-rc.1` peer
+  ranges; the 10 consumed `@deepseek-ai/dsh-*` packages are also pinned as exact
+  `devDependencies` to the latest verified rc for typecheck/build). Installs on
   an `0.2.0-rc.*` or older host are rejected by the boot compatibility gate.
+- Requires Node `>= 24.9.0` (the `0.2.2-rc.1` train dropped Node 22).
 - Lives at the repo root, deliberately **not** inside a `packages/` directory
   — it is deployment-side composition, not an official upstream package.
 - Two halves compiled into one published surface:
@@ -45,10 +48,13 @@ Run from the repo root with `pnpm`.
 - `pnpm run typecheck` — `tsc --noEmit` against `tsconfig.json` (host tree).
 - `pnpm run typecheck:client` — `tsc --noEmit -p tsconfig.client.json`
   (client tree; `noEmit: true`).
-- `pnpm run ci:drift` — greps the installed `@deepseek-ai/dsh-tools` for the
-  rejection-text prefix (tries `src/index.ts` in an unpacked dev tree, then
-  the published `lib/index.js`); exits `1` if upstream drifted. **Always run
-  after upgrading `@deepseek-ai/dsh-tools`.**
+- `pnpm run ci:drift` — scans the installed `@deepseek-ai/dsh-tools` for the
+  rejection-text prefix. Candidates in order: `src/pipeline.ts` (0.2.2-rc.1+
+  unpacked tree), `src/index.ts` (older unpacked tree), `lib/pipeline.js`
+  (0.2.2-rc.1+ published `./pipeline` sub-entry), `lib/index.js` (older
+  published bundle); then a fallback scan over every top-level `lib/*.js`
+  chunk. Exits `1` if upstream drifted. **Always run after upgrading
+  `@deepseek-ai/dsh-tools`.**
 - `pnpm run test` — `pnpm ci:drift` then `tsx tests/reject-policy-check.mts`.
   The check file has 18 assertions across 7 numbered cases; it uses `tsx`
   directly, no test framework.
@@ -69,6 +75,12 @@ Run from the repo root with `pnpm`.
   Create with `git worktree add .worktrees/<name> -b <branch> HEAD` and
   install inside it with an absolute `--store-dir` pointing at the main
   checkout's `.pnpm-store`.
+- Build the final `lib/` from the **main checkout**, never from a nested
+  worktree: `lib/client.js` embeds the absolute CSS source path and the
+  lightningcss CSS-module hash derives from it, so a worktree build has a
+  different class hash (and different bundle bytes) than a main-checkout build.
+  Merge first, then `pnpm install && pnpm run build` in the main checkout and
+  commit `lib/` separately.
 - No lint, no formatter, no pre-commit hooks, no GitHub Actions workflow is
   configured in this repo.
 
@@ -132,7 +144,10 @@ Run from the repo root with `pnpm`.
   `cordis.Context`, then drives `tools/post-execute` and `agent/pre-step`
   waterfalls. Runtime mode switches write the volatile references directly
   (`Symbol.for('cosmokit.volatile.write')`), the same in-place update the
-  Loader's `_commitVolatile` performs. No real approval, no real agent loop.
+  Loader's `_commitVolatile` performs; the references are read from
+  `fiber.effectiveConfig` because cordis 4.1.0 moved the schema-resolved Config
+  there (`fiber.config` is raw input now). No real approval, no real agent
+  loop.
 - `scripts/check-official-template.ts` — drift guard described above.
 - `docs/DESIGN.md` — design rationale, the 2×2 mode/message matrix, rejected
   alternatives. Source of truth for "why" decisions; this file is the "how".
@@ -173,22 +188,25 @@ Run from the repo root with `pnpm`.
   `README.md` is English. Keep tone consistent when editing each surface.
 - `.env` at the repo root holds local harness dev secrets; it is
   git-ignored. Do not commit secrets; do not echo them into docs.
-- `pnpm-lock.yaml` is the source of truth for installed versions; the
-  `@deepseek-ai/dsh-*` peer-dep range is the only knob that pins us to
-  a given upstream train. **Note**: prerelease semver does not float
-  forward across patch lines under node-semver's default prerelease
-  rules (`^0.2.0-rc.1` never resolves `0.2.1-rc.*`) — bump the range
-  explicitly when chasing a new train, and delete `pnpm-lock.yaml`
-  before reinstalling. The `0.2.1-rc.*` train also raises the base
-  libraries: `@deepseek-ai/cordis` `~4.0.5` and
-  `@deepseek-ai/schemastery` `~3.18.5` (the published dsh packages peer
-  on those exact minors, and `~` keeps a single copy in the dev tree;
-  the 0.1.7/0.2.0 trains used `^4.0.4` / `^3.18.4`).
-- Write the train range as `^0.2.1-rc.1`, never `^0.2.1` or `~0.2.1`:
-  a caret on a prerelease base admits later prereleases of the same
-  `0.x` line (`>=0.2.1-rc.1 <0.3.0-0`), while `^0.2.1` excludes
-  prereleases entirely and is rejected by the host today. Never pin an
-  exact `0.2.1-rc.N` — the next rc is rejected again.
+- `pnpm-lock.yaml` is the source of truth for installed versions. Two knobs
+  pin the upstream train and they move together: the `@deepseek-ai/dsh-*` peer
+  ranges (what consumers/hosts must satisfy — keep them wide) and the exact
+  `devDependencies` pins (what this repo typechecks/builds against). **Note**:
+  prerelease semver does not float forward across patch lines under
+  node-semver's default prerelease rules (`^0.2.0-rc.1` never resolves
+  `0.2.1-rc.*`) — bump both explicitly when chasing a new train, and delete
+  `pnpm-lock.yaml` before reinstalling. The `0.2.2-rc.1` train raises the base
+  libraries to `@deepseek-ai/cordis` `4.1.0` and `@deepseek-ai/schemastery`
+  `3.19.0`; the peers must cover both the old and the new minor (`^4.0.5`,
+  `^3.18.5`), because `~4.0.5` / `~3.18.5` stop below them.
+- Write dsh peer ranges as an OR when a new train lands:
+  `^0.2.1-rc.1 || ^0.2.2-rc.1`. The boot gate tests each peer with
+  `semver.satisfies(..., { includePrerelease: true })`, under which
+  `^0.2.1-rc.1` already admits `0.2.2-rc.1`; but node-semver's **default**
+  rules (pnpm peer resolution, `npm ls`) do not, so the OR keeps both the gate
+  and the package manager happy while one artifact serves both trains. Never
+  write `^0.2.1` alone (it rejects `0.2.1-rc.*` hosts), and never pin an exact
+  rc in peers — the next rc would be rejected again.
 
 ## The boot compatibility gate
 
@@ -221,7 +239,11 @@ rejected inside `engines.dsh`. Consequences that bite this repo:
   the plugin appears to do nothing — no error, no warning. Run
   `pnpm run ci:drift` (wired into `test` and `build`) after upgrading the
   peer dep; if it fails, update `OFFICIAL_REJECTION_TEMPLATE` in
-  `src/index.ts` and re-run.
+  `src/index.ts` and re-run. The literal also MOVES between releases without
+  changing text (`src/index.ts` → `src/pipeline.ts` on 0.2.2-rc.1), and the
+  published package stopped shipping `src/` — that is why the guard checks
+  several locations plus a `lib/*.js` fallback. A guard failure is not proof
+  of drift; read its candidate list first.
 - **Coverage gap.** The plugin only sees tool calls that flow through the
   agent loop. Harness-internal bash and other out-of-loop tool calls are
   invisible; do not promise otherwise.
@@ -242,6 +264,16 @@ rejected inside `engines.dsh`. Consequences that bite this repo:
   registration on the Host serving the namespace. The card deliberately takes
   the page-supplied `ConfigPageForm` (`form.state` + `form.mutate`) instead
   of binding its own form service.
+- **The Plugins page itself is gated on 0.2.2-rc.1+.** `ui-plugin-manager`
+  wraps the whole page in `remoteAccess.whenAccess('pluginManager/listBundles')`,
+  so a non-owner / restricted Peer never mounts `plugins.row.config` — the
+  card's absence there is expected host behavior, not a registration bug.
+  Verify the card on an owner session.
+- **cordis 4.1.0 splits raw vs resolved config.** `fiber.config` is the raw
+  input now; the schema-resolved Config (with the volatile references) lives on
+  `fiber.effectiveConfig`, which is what the Loader's `_commitVolatile` reads.
+  A fixture that wrote `fiber.config.mode` (valid on 4.0.5) throws on the
+  0.2.2-rc.1 train; read `fiber.effectiveConfig` instead.
 - **Client bundle purity gate.** Never `import` (value) anything from
   `../index` inside `src/client/`. Value imports drag
   `@deepseek-ai/schemastery` into the browser bundle, which the loader's
@@ -271,12 +303,12 @@ rejected inside `engines.dsh`. Consequences that bite this repo:
   `pnpm` scripts above (`typecheck`, `typecheck:client`, `ci:drift`, `test`,
   `build`) plus reviewer discipline.
 - **Upstream line numbers in `OFFICIAL_REJECTION_TEMPLATE`'s comments**
-  (`packages/core/tools/src/index.ts:1755` in `README.md` and
-  `docs/DESIGN.md`) drift across DSH releases (0.2.1-rc.2: `1763`). Do not
-  "fix" the constant to match the line — the constant must match the actual
-  message text. Treat the line numbers as informational only; the drift check
-  asserts on the stable string prefix `the user rejected tool "`, not on a
-  line.
+  (`packages/core/tools/src/index.ts:1755`, then `1763` on 0.2.1-rc.2, now
+  `packages/core/tools/src/pipeline.ts:460` on 0.2.2-rc.1, in `README.md` and
+  `docs/DESIGN.md`) drift across DSH releases, and the file itself can move.
+  Do not "fix" the constant to match a line — the constant must match the
+  actual message text. Treat locations as informational only; the drift check
+  asserts on the stable string prefix `the user rejected tool "`.
 
 ## Maintenance
 

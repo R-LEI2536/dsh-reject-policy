@@ -59,7 +59,10 @@ const OFFICIAL_REJECTION_TEMPLATE = 'the user rejected tool "{name}"'
 
 匹配 `result.error.message === OFFICIAL_REJECTION_TEMPLATE.replace('{name}', exec.name)`。
 
-**耦合点**：`packages/core/tools/src/index.ts:1755` 的官方原文改了，本常量必须同步更新。
+**耦合点**：官方原文改了，本常量必须同步更新。0.2.2-rc.1 起原文在
+`packages/core/tools/src/pipeline.ts:460`（发布产物 `lib/pipeline.js`，
+`@deepseek-ai/dsh-tools/pipeline` 子入口）；旧训练在 `index.ts:1755` /
+`1763`。行号只用于定位，`ci:drift` 断言的是稳定字面前缀。
 
 ## 5. 为什么用 `agent/pre-step` reject 而不是 abort signal
 

@@ -26,7 +26,7 @@ The plugin does not modify DSH source code. Both behaviors attach to existing wa
 
 ## Installation
 
-Requires DSH `0.2.1-rc.1`+. The `@deepseek-ai/dsh-*` peer ranges are `^0.2.1-rc.1`; the host's boot compatibility gate rejects this plugin on an `0.2.0-rc.*` (or older) host, so install it in the same batch as the host upgrade.
+Requires DSH `0.2.1-rc.1`+ — built, typechecked and tested against `0.2.2-rc.1`. The `@deepseek-ai/dsh-*` peer ranges are `^0.2.1-rc.1 || ^0.2.2-rc.1`, so the same artifact is accepted by an `0.2.1-rc.*` host and by `0.2.2-rc.1`. The host's boot compatibility gate rejects it on an `0.2.0-rc.*` (or older) host, so install it in the same batch as the host upgrade.
 
 ```sh
 dsh plugin --profile web add "link:/path/to/dsh-reject-policy"
@@ -112,18 +112,21 @@ the user.
 
 ## Known Limitations and Deferred Work
 
-- **`OFFICIAL_REJECTION_TEMPLATE` is hardcoded** to `the user rejected tool "{name}"`. If upstream DSH rewrites that string in `serviceAsk`, this plugin silently stops detecting rejections (no error, no warning — just no behavior). `pnpm run ci:drift` (wired into `pnpm test` / `pnpm build`) greps the installed `@deepseek-ai/dsh-tools` source for the prefix and exits 1 if it has drifted — run `pnpm test` or `pnpm build` after upgrading DSH to catch this locally.
+- **`OFFICIAL_REJECTION_TEMPLATE` is hardcoded** to `the user rejected tool "{name}"`. If upstream DSH rewrites that string in the approval denial path, this plugin silently stops detecting rejections (no error, no warning — just no behavior). `pnpm run ci:drift` (wired into `pnpm test` / `pnpm build`) scans the installed `@deepseek-ai/dsh-tools` package (unpacked `src/` when shipped, otherwise the published `lib/*.js` chunks) for the prefix and exits 1 if it has drifted — run `pnpm test` or `pnpm build` after upgrading DSH to catch this locally. The literal moved once already: `src/index.ts` on `0.2.1-rc.*`, `src/pipeline.ts` / `lib/pipeline.js` on `0.2.2-rc.1`.
 - **Coverage** is limited to tool calls that go through the agent loop. Harness-internal bash and other out-of-loop tool calls are not observable here.
 - **`mode` defaults to `'stop'`**, which closes the turn on the very first rejection. Consumers that want "rewrite only, never halt" should set `mode: 'default'` at install time or toggle it through the Plugins page.
 - **The card exposes only `mode`.** `stopOnRejectTools` is runtime-editable through `ctx.settings.update` but has no UI control on the row page yet.
+- **Plugins page availability** (host behavior on `0.2.2-rc.1`+): the page is gated by `remoteAccess.whenAccess('pluginManager/listBundles')`, so the row's Configure page (`plugins.row.config`) only mounts for an owner / unrestricted Peer. On a restricted Peer, message rewriting still works — only the settings card is absent. Runtime edits through `ctx.settings.update` are unaffected.
 
 ## Reference
 
 - [docs/DESIGN.md](./docs/DESIGN.md) — design rationale, implementation mechanism, rejected alternatives.
 - [docs/UPGRADE-0.1.7-LESSONS.md](./docs/UPGRADE-0.1.7-LESSONS.md) — the 0.1.7-rc.2 migration retrospective: live-test matrix, pitfalls (version floors, volatile typing, the retired Settings entry), and a reusable upgrade checklist.
-- `@deepseek-ai/dsh-tools` — upstream `serviceAsk` rejection flow that this plugin detects (`packages/core/tools/src/index.ts:1755`).
+- `@deepseek-ai/dsh-tools` — upstream approval rejection flow that this plugin detects (`packages/core/tools/src/pipeline.ts:460` on `0.2.2-rc.1`; `src/index.ts:1755` on older trains).
 
 ## Verification
+
+Requires Node `>= 24.9.0` (the `0.2.2-rc.1` toolchain dropped Node 22).
 
 ```sh
 pnpm install

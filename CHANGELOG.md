@@ -1,5 +1,84 @@
 # Changelog
 
+## 0.5.2 (2026-11-05)
+
+DSH `0.2.2-rc.1` alignment. Per the
+[DSH 0.2.2-rc.1 plugin upgrade guide](../deepseek-harness/DSH-0.2.2-rc.1-插件升级指南.md)
+§4.4: no `src/**` runtime change was required — every upstream surface this
+plugin consumes is unchanged — but the dependency declaration, the drift guard,
+and the test's volatile-write simulation needed work.
+
+- chore(deps): the 10 `@deepseek-ai/dsh-*` packages this plugin consumes are now
+  explicit `devDependencies` pinned exactly to `0.2.2-rc.1`. The repo had none:
+  `typecheck`/`build` leaned on pnpm's auto-installed peers, which resolved the
+  previous train. Base libraries pinned the same way:
+  `@deepseek-ai/cordis` `4.1.0`, `@deepseek-ai/schemastery` `3.19.0`.
+- chore(deps): peer ranges widened two-sidedly. `@deepseek-ai/dsh-*` peers
+  `^0.2.1-rc.1` → `^0.2.1-rc.1 || ^0.2.2-rc.1`; `@deepseek-ai/cordis` `~4.0.5`
+  → `^4.0.5`; `@deepseek-ai/schemastery` `~3.18.5` → `^3.18.5` (`~3.18.5` never
+  admits 3.19.0, the 0.2.2-rc.1 minor). The OR form matters off-gate too:
+  node-semver's default prerelease rules do not let `0.2.2-rc.1` satisfy
+  `^0.2.1-rc.1`, so a pnpm profile install would report an unmet peer without
+  it; the boot gate's `includePrerelease` check accepts either form.
+- fix(ci): `scripts/check-official-template.ts` follows the 0.2.2-rc.1 package
+  layout. `dsh-tools` moved the rejection literal from `src/index.ts` into the
+  execution pipeline (`src/pipeline.ts:460`, published as `lib/pipeline.js` /
+  the `@deepseek-ai/dsh-tools/pipeline` sub-entry) and no longer publishes
+  `src/` at all, so the old `src/index.ts` + `lib/index.js` candidate pair would
+  have false-failed. The guard now checks both layouts, then falls back to
+  scanning every top-level `lib/*.js` chunk.
+- test: the volatile-write simulation now reads the schema-resolved Config from
+  `fiber.effectiveConfig`. cordis `4.1.0` keeps the raw input in `fiber.config`
+  and moved the resolved object aside — the same split the Loader's
+  `_commitVolatile` follows (`vendor/loader/src/config/entry.ts`). On 4.1.0
+  `fiber.config.mode` is `undefined`, so the old fixture threw before any
+  assertion ran. Still 18/18 across the 7 cases.
+- chore(repo): `lib/` rebuilt against the `0.2.2-rc.1` type surface (host +
+  client bundles and `lib/types/`).
+- **compat**: the floor is unchanged (still rejected on `0.2.0-rc.*` and older).
+  One artifact now serves `0.2.1-rc.*` and `0.2.2-rc.1`: the boot gate accepts
+  this manifest on `0.2.1-rc.1` / `rc.2` / `rc.5` / `0.2.2-rc.1`, so rolling the
+  host back does not need a plugin re-release.
+- **note (host behavior, no plugin change)**: on `0.2.2-rc.1` the whole Plugins
+  page is wrapped in `remoteAccess.whenAccess('pluginManager/listBundles')`
+  (`ui-plugin-manager/src/client/index.ts`), so a non-owner or restricted Peer
+  no longer sees the `plugins.row.config` page. Owners see it as before.
+
+Upstream contract check against the `0.2.2-rc.1` source tree:
+
+- `packages/core/tools/src/pipeline.ts:460` — the approval denial still writes
+  `the user rejected tool "${exec.name}"`, and `pipeline.ts:213-222` copies
+  `decision.reason` into `error.message` — exactly the value the plugin matches.
+  The literal moved from `src/index.ts:1755` (`1763` on 0.2.1-rc.2).
+- `packages/core/tools/src/contracts.ts:367-370` — `PostToolDecision` still
+  carries `{ kind: 'block'; feedback }`; `events.ts:41` keeps the
+  `tools/post-execute` waterfall shape `(exec, result, next)`.
+- `packages/core/agent/src/runtime-types.ts:139-140` — `agent/pre-step` still
+  accepts `{ kind: 'reject' }`.
+- `packages/settings/settings/src/index.ts:266` —
+  `ctx.settings.configure({ auto }, owner)` is unchanged.
+- Client contracts: `plugins.row.config`
+  (`ui-plugin-manager/src/client/slot-contract.ts:150`), `ConfigPageForm`
+  (`:172-177`), `ConfigFormSnapshot`, `ConfigForms.whileServed`,
+  `ctx.slots.inject/register`, `LocaleNamespaceMap`, `Menu` /
+  `IconChevronDownOutlineRegular` are all unchanged.
+- Guide §3 checklist: 0 hits in this plugin — no `tools` row composition (so no
+  executor / `mode` / `maxParallelSubCalls` surface), no `list-agents`
+  sub-entry patch, no `modelSelectionSettings`, no `assembly.tools` read, no
+  renamed menu / chat / composer client symbol, and no import of a removed
+  package (`dsh-invariants`, `ui-deepseek-model-label-1017`) or of the moved
+  bundle lists.
+
+Verified on `0.2.2-rc.1` devDeps (Node 24.18.0, pnpm 11.28.5): `ci:drift`
+(literal found in the published `lib/pipeline.js`), host `typecheck`, client
+`typecheck`, `test` (18/18), `build`. Boot-gate real computation with the local
+host's `evaluatePluginCompatibility`: PASS on `0.2.2-rc.1` and on `0.2.1-rc.5`,
+while the control group (peer pinned to exact `0.2.1-rc.5`) is REJECT — the check
+is not vacuous. This is the in-repo (L1) layer only: the local host is still
+`0.2.1-rc.5`, so a `0.2.2-rc.1` cold start (boot stderr), the Plugins-page
+Configure card, a volatile save, and one real rejection are still to be
+verified live.
+
 ## 0.5.1 (2026-11-02)
 
 Packaging fix for GitHub-source installs; no `src/**` change, behavior is

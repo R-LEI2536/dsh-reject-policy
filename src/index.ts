@@ -91,7 +91,11 @@ export const Config = z.object({
   defaultMessage: z.string().required(false),
 }) as z<RuntimeConfig>
 
-/** 官方 serviceAsk 的拒因模板（packages/core/tools/src/index.ts:1755）。 */
+/**
+ * 官方审批拒绝写出的拒因模板。0.2.2-rc.1 起位于 execution pipeline
+ * （`packages/core/tools/src/pipeline.ts:460`，发布产物 `lib/pipeline.js`）；
+ * 旧训练在 `index.ts:1755` / `1763`。行号仅供定位，匹配靠字面前缀。
+ */
 export const OFFICIAL_REJECTION_TEMPLATE = 'the user rejected tool "{name}"'
 
 /**
@@ -121,8 +125,9 @@ export function isStopPending(session: Session): boolean { return stopPending.ge
 export function clearStopPending(session: Session): void { stopPending.delete(session) }
 
 /**
- * 判断检测：result 是 serviceAsk 生成的拒绝结果。匹配
- * `packages/core/tools/src/index.ts:1755` 写出的 `the user rejected tool "X"`。
+ * 判断检测：result 是官方审批拒绝生成的拒绝结果。匹配
+ * `packages/core/tools/src/pipeline.ts:460`（0.2.2-rc.1；旧训练为
+ * `index.ts:1755`）写出的 `the user rejected tool "X"`。
  */
 function isRejectionResult(toolName: string, result: ToolExecutionResult): boolean {
   if (!result.isError) return false

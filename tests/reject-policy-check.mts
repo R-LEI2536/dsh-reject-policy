@@ -5,11 +5,16 @@
  * 然后调用 ctx.waterfall('tools/post-execute', ...) 与 ctx.waterfall('agent/pre-step', ...)
  * 模拟一次拒绝结果 + 下一轮 pre-step，断言本插件产出与预期一致。
  *
- * DSH 0.1.7：`mode` / `stopOnRejectTools` 是插件 Config 的 volatile 字段，
- * 运行时改动走「写 volatile 引用」路径——这正是 Loader `_commitVolatile`
- * （loader/volatile-update）在生产环境做的事。测试用 cosmokit 的内部写
- * 协议（`Symbol.for('cosmokit.volatile.write')`）把 `fiber.config` 上的
- * 引用原地更新，插件的事件时 `.get()` 随即读到新值，无需任何订阅。
+ * `mode` / `stopOnRejectTools` 是插件 Config 的 volatile 字段，运行时改动走
+ * 「写 volatile 引用」路径——这正是 Loader `_commitVolatile`
+ * （loader/volatile-update）在生产环境做的事。测试用 cosmokit 的内部写协议
+ * （`Symbol.for('cosmokit.volatile.write')`）把解析后 Config 上的引用原地更新，
+ * 插件的事件时 `.get()` 随即读到新值，无需任何订阅。
+ *
+ * cordis 4.1.0 起 `fiber.config` 只保留**原始输入**，schema 解析后的 Config 改从
+ * `fiber.effectiveConfig` 读取（Loader 的 `_commitVolatile` 同样改走这里，见
+ * `vendor/loader/src/config/entry.ts`）。测试必须照此取引用，否则 4.1.0 下
+ * `fiber.config.mode` 是 undefined。
  *
  * 覆盖 18 条断言：
  *   1. mode='default' + 无文案配置 → 结果透传（无 flag、无文案改写）。
@@ -40,7 +45,6 @@ function writeVolatile(ref: object, value: unknown): void {
   const writable = ref as { [key: symbol]: (value: unknown) => void }
   writable[Symbol.for('cosmokit.volatile.write')](value)
 }
-
 // ── 共用工厂：构造一个 session 形状与 tool exec 形状 ─────────────────────────
 const session: { __id: symbol } = { __id: Symbol('session') }
 // 用鸭子类型注入；plugin 不读 session 字段，只做 WeakMap key + 传引用。
@@ -70,11 +74,15 @@ async function mount(config: Parameters<typeof mod.apply>[1]): Promise<{
 }> {
   const ctx = new Context()
   const fiber = await ctx.plugin(mod, config)
+  // cordis 4.1.0: resolved (schema-applied) config lives on `effectiveConfig`,
+  // not on the raw-input `config` field. The Loader's `_commitVolatile` reads it
+  // from the same place.
+  const resolved = fiber.effectiveConfig as Parameters<typeof mod.apply>[1]
   return {
     ctx,
     setConfig: (patch) => {
-      if (patch.mode !== undefined) writeVolatile(fiber.config.mode, patch.mode)
-      if (patch.stopOnRejectTools !== undefined) writeVolatile(fiber.config.stopOnRejectTools, patch.stopOnRejectTools)
+      if (patch.mode !== undefined) writeVolatile(resolved.mode, patch.mode)
+      if (patch.stopOnRejectTools !== undefined) writeVolatile(resolved.stopOnRejectTools, patch.stopOnRejectTools)
     },
   }
 }
