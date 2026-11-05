@@ -112,21 +112,21 @@ the user.
 
 ## Known Limitations and Deferred Work
 
-- **`OFFICIAL_REJECTION_TEMPLATE` is hardcoded** to `the user rejected tool "{name}"`. If upstream DSH rewrites that string in the approval denial path, this plugin silently stops detecting rejections (no error, no warning — just no behavior). `pnpm run ci:drift` (wired into `pnpm test` / `pnpm build`) scans the installed `@deepseek-ai/dsh-tools` package (unpacked `src/` when shipped, otherwise the published `lib/*.js` chunks) for the prefix and exits 1 if it has drifted — run `pnpm test` or `pnpm build` after upgrading DSH to catch this locally. The literal moved once already: `src/index.ts` on `0.2.1-rc.*`, `src/pipeline.ts` / `lib/pipeline.js` on `0.2.2-rc.1`.
+- **`OFFICIAL_REJECTION_TEMPLATE` is hardcoded** to `the user rejected tool "{name}"`. If upstream DSH rewrites that string in the approval denial path, this plugin silently stops detecting rejections (no error, no warning — just no behavior). `pnpm run ci:drift` (wired into `pnpm test` / `pnpm build`) scans the installed `@deepseek-ai/dsh-tools` package (unpacked `src/` when shipped, otherwise the published `lib/*.js` chunks) for the prefix and exits 1 if it has drifted — run `pnpm test` or `pnpm build` after upgrading DSH to catch this locally. The literal has already moved twice — `src/index.ts` on `0.2.0-rc.*` / `0.2.1-rc.*` (line `1755` → `1763`), published as `lib/index.js`, then `src/pipeline.ts` / published `lib/pipeline.js` on `0.2.2-rc.1`. Published tarballs carry only `lib/` and `locale/` (never `src/`), so the guard reads whichever layout is installed.
 - **Coverage** is limited to tool calls that go through the agent loop. Harness-internal bash and other out-of-loop tool calls are not observable here.
 - **`mode` defaults to `'stop'`**, which closes the turn on the very first rejection. Consumers that want "rewrite only, never halt" should set `mode: 'default'` at install time or toggle it through the Plugins page.
 - **The card exposes only `mode`.** `stopOnRejectTools` is runtime-editable through `ctx.settings.update` but has no UI control on the row page yet.
-- **Plugins page availability** (host behavior on `0.2.2-rc.1`+): the page is gated by `remoteAccess.whenAccess('pluginManager/listBundles')`, so the row's Configure page (`plugins.row.config`) only mounts for an owner / unrestricted Peer. On a restricted Peer, message rewriting still works — only the settings card is absent. Runtime edits through `ctx.settings.update` are unaffected.
+- **Plugins page availability** (host behavior on `0.2.2-rc.1`+): the page is gated by `remoteAccess.whenAccess('pluginManager/listBundles')`, so the row's Configure page (`plugins.row.config`) only mounts for the owner session — that endpoint is `owner-only` (`packages/experimental/liveshare/src/endpoint-classification.ts:144`), and any non-owner Peer (restricted or unrestricted) lacks it. In that case message rewriting still works — only the settings card is absent. Runtime edits through `ctx.settings.update` are unaffected.
 
 ## Reference
 
 - [docs/DESIGN.md](./docs/DESIGN.md) — design rationale, implementation mechanism, rejected alternatives.
 - [docs/UPGRADE-0.1.7-LESSONS.md](./docs/UPGRADE-0.1.7-LESSONS.md) — the 0.1.7-rc.2 migration retrospective: live-test matrix, pitfalls (version floors, volatile typing, the retired Settings entry), and a reusable upgrade checklist.
-- `@deepseek-ai/dsh-tools` — upstream approval rejection flow that this plugin detects (`packages/core/tools/src/pipeline.ts:460` on `0.2.2-rc.1`; `src/index.ts:1755` on older trains).
+- `@deepseek-ai/dsh-tools` — upstream approval rejection flow that this plugin detects (`packages/core/tools/src/pipeline.ts:460` on `0.2.2-rc.1`; `src/index.ts:1763` on `0.2.1-rc.*`, `1755` on `0.2.0-rc.*`).
 
 ## Verification
 
-Requires Node `>= 24.9.0` (the `0.2.2-rc.1` toolchain dropped Node 22).
+Building and verifying against the `0.2.2-rc.1` devDeps requires Node `>= 24.9.0` (that toolchain dropped Node 22). The published plugin has no separate Node floor of its own — it runs on whatever Node the host runs.
 
 ```sh
 pnpm install

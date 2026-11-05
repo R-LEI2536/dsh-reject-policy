@@ -10,7 +10,9 @@ rejected, and optionally halts the turn after the rejection.
   ranges; the 10 consumed `@deepseek-ai/dsh-*` packages are also pinned as exact
   `devDependencies` to the latest verified rc for typecheck/build). Installs on
   an `0.2.0-rc.*` or older host are rejected by the boot compatibility gate.
-- Requires Node `>= 24.9.0` (the `0.2.2-rc.1` train dropped Node 22).
+- Building and verifying against the `0.2.2-rc.1` devDeps requires Node
+  `>= 24.9.0` (that train dropped Node 22). The published plugin has no Node
+  floor of its own; it runs on whatever Node the host runs.
 - Lives at the repo root, deliberately **not** inside a `packages/` directory
   — it is deployment-side composition, not an official upstream package.
 - Two halves compiled into one published surface:
@@ -240,10 +242,12 @@ rejected inside `engines.dsh`. Consequences that bite this repo:
   `pnpm run ci:drift` (wired into `test` and `build`) after upgrading the
   peer dep; if it fails, update `OFFICIAL_REJECTION_TEMPLATE` in
   `src/index.ts` and re-run. The literal also MOVES between releases without
-  changing text (`src/index.ts` → `src/pipeline.ts` on 0.2.2-rc.1), and the
-  published package stopped shipping `src/` — that is why the guard checks
-  several locations plus a `lib/*.js` fallback. A guard failure is not proof
-  of drift; read its candidate list first.
+  changing text (`src/index.ts` → `src/pipeline.ts` on 0.2.2-rc.1, published
+  `lib/index.js` → `lib/pipeline.js`), and the published package ships no
+  `src/` at all in the 0.2.x line (`package.json#files` = `lib/` + `locale/`,
+  while `exports` still maps `./src/*`) — that is why the guard checks several
+  locations plus a `lib/*.js` fallback. A guard failure is not proof of drift;
+  read its candidate list first.
 - **Coverage gap.** The plugin only sees tool calls that flow through the
   agent loop. Harness-internal bash and other out-of-loop tool calls are
   invisible; do not promise otherwise.
@@ -266,14 +270,17 @@ rejected inside `engines.dsh`. Consequences that bite this repo:
   of binding its own form service.
 - **The Plugins page itself is gated on 0.2.2-rc.1+.** `ui-plugin-manager`
   wraps the whole page in `remoteAccess.whenAccess('pluginManager/listBundles')`,
-  so a non-owner / restricted Peer never mounts `plugins.row.config` — the
+  and that endpoint is `owner-only`
+  (`packages/experimental/liveshare/src/endpoint-classification.ts:144`), so a
+  non-owner Peer — restricted or not — never mounts `plugins.row.config`; the
   card's absence there is expected host behavior, not a registration bug.
   Verify the card on an owner session.
 - **cordis 4.1.0 splits raw vs resolved config.** `fiber.config` is the raw
-  input now; the schema-resolved Config (with the volatile references) lives on
-  `fiber.effectiveConfig`, which is what the Loader's `_commitVolatile` reads.
-  A fixture that wrote `fiber.config.mode` (valid on 4.0.5) throws on the
-  0.2.2-rc.1 train; read `fiber.effectiveConfig` instead.
+  patch input now; the schema-resolved Config (with the volatile references)
+  lives on `fiber.effectiveConfig`, which is what the Loader's `_commitVolatile`
+  reads. On 4.1.0 `fiber.config.mode` is `undefined` unless the fixture patch
+  sets `mode`, so the old fixture's write threw on that undefined reference;
+  read `fiber.effectiveConfig` instead.
 - **Client bundle purity gate.** Never `import` (value) anything from
   `../index` inside `src/client/`. Value imports drag
   `@deepseek-ai/schemastery` into the browser bundle, which the loader's
@@ -303,9 +310,10 @@ rejected inside `engines.dsh`. Consequences that bite this repo:
   `pnpm` scripts above (`typecheck`, `typecheck:client`, `ci:drift`, `test`,
   `build`) plus reviewer discipline.
 - **Upstream line numbers in `OFFICIAL_REJECTION_TEMPLATE`'s comments**
-  (`packages/core/tools/src/index.ts:1755`, then `1763` on 0.2.1-rc.2, now
-  `packages/core/tools/src/pipeline.ts:460` on 0.2.2-rc.1, in `README.md` and
-  `docs/DESIGN.md`) drift across DSH releases, and the file itself can move.
+  (`packages/core/tools/src/index.ts:1755` on 0.2.0-rc.*, `1763` on
+  0.2.1-rc.*, now `packages/core/tools/src/pipeline.ts:460` on 0.2.2-rc.1, in
+  `README.md` and `docs/DESIGN.md`) drift across DSH releases, and the file
+  itself can move.
   Do not "fix" the constant to match a line — the constant must match the
   actual message text. Treat locations as informational only; the drift check
   asserts on the stable string prefix `the user rejected tool "`.

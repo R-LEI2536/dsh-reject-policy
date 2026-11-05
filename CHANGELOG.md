@@ -5,8 +5,10 @@
 DSH `0.2.2-rc.1` alignment. Per the
 [DSH 0.2.2-rc.1 plugin upgrade guide](../deepseek-harness/DSH-0.2.2-rc.1-插件升级指南.md)
 §4.4: no `src/**` runtime change was required — every upstream surface this
-plugin consumes is unchanged — but the dependency declaration, the drift guard,
-and the test's volatile-write simulation needed work.
+plugin consumes stayed source-compatible (one client component gained optional
+props and new internals; nothing this plugin calls was removed or renamed) — but
+the dependency declaration, the drift guard, and the test's volatile-write
+simulation needed work.
 
 - chore(deps): the 10 `@deepseek-ai/dsh-*` packages this plugin consumes are now
   explicit `devDependencies` pinned exactly to `0.2.2-rc.1`. The repo had none:
@@ -21,18 +23,21 @@ and the test's volatile-write simulation needed work.
   `^0.2.1-rc.1`, so a pnpm profile install would report an unmet peer without
   it; the boot gate's `includePrerelease` check accepts either form.
 - fix(ci): `scripts/check-official-template.ts` follows the 0.2.2-rc.1 package
-  layout. `dsh-tools` moved the rejection literal from `src/index.ts` into the
-  execution pipeline (`src/pipeline.ts:460`, published as `lib/pipeline.js` /
-  the `@deepseek-ai/dsh-tools/pipeline` sub-entry) and no longer publishes
-  `src/` at all, so the old `src/index.ts` + `lib/index.js` candidate pair would
-  have false-failed. The guard now checks both layouts, then falls back to
-  scanning every top-level `lib/*.js` chunk.
+  layout. `dsh-tools` moved the rejection literal out of `src/index.ts` into the
+  execution pipeline (`src/pipeline.ts:460`; in the published tarball
+  `lib/index.js` → `lib/pipeline.js`, reachable as the
+  `@deepseek-ai/dsh-tools/pipeline` sub-entry). The published package has never
+  shipped `src/` in the 0.2.x line — `package.json#files` lists only `lib/` and
+  `locale/`, even though `exports` maps `./src/*` — so the old `src/index.ts` +
+  `lib/index.js` candidate pair would have false-failed. The guard now checks
+  both layouts, then falls back to scanning every top-level `lib/*.js` chunk.
 - test: the volatile-write simulation now reads the schema-resolved Config from
   `fiber.effectiveConfig`. cordis `4.1.0` keeps the raw input in `fiber.config`
   and moved the resolved object aside — the same split the Loader's
   `_commitVolatile` follows (`vendor/loader/src/config/entry.ts`). On 4.1.0
-  `fiber.config.mode` is `undefined`, so the old fixture threw before any
-  assertion ran. Still 18/18 across the 7 cases.
+  `fiber.config` is the raw patch input, so `fiber.config.mode` is `undefined`
+  when the fixture patch omits `mode`; the old fixture's volatile write then
+  threw before any assertion ran. Still 18/18 across the 7 cases.
 - chore(repo): `lib/` rebuilt against the `0.2.2-rc.1` type surface (host +
   client bundles and `lib/types/`).
 - **compat**: the floor is unchanged (still rejected on `0.2.0-rc.*` and older).
@@ -41,15 +46,19 @@ and the test's volatile-write simulation needed work.
   host back does not need a plugin re-release.
 - **note (host behavior, no plugin change)**: on `0.2.2-rc.1` the whole Plugins
   page is wrapped in `remoteAccess.whenAccess('pluginManager/listBundles')`
-  (`ui-plugin-manager/src/client/index.ts`), so a non-owner or restricted Peer
-  no longer sees the `plugins.row.config` page. Owners see it as before.
+  (`ui-plugin-manager/src/client/index.ts`), and that endpoint is classified
+  `owner-only`
+  (`packages/experimental/liveshare/src/endpoint-classification.ts:144`), so
+  only an owner session mounts the `plugins.row.config` page; any non-owner
+  Peer — restricted or unrestricted — does not.
 
 Upstream contract check against the `0.2.2-rc.1` source tree:
 
 - `packages/core/tools/src/pipeline.ts:460` — the approval denial still writes
   `the user rejected tool "${exec.name}"`, and `pipeline.ts:213-222` copies
   `decision.reason` into `error.message` — exactly the value the plugin matches.
-  The literal moved from `src/index.ts:1755` (`1763` on 0.2.1-rc.2).
+  The literal's line moved from `src/index.ts:1755` on `0.2.0-rc.*` to `1763` on
+  `0.2.1-rc.*`, then into `pipeline.ts` on `0.2.2-rc.1`.
 - `packages/core/tools/src/contracts.ts:367-370` — `PostToolDecision` still
   carries `{ kind: 'block'; feedback }`; `events.ts:41` keeps the
   `tools/post-execute` waterfall shape `(exec, result, next)`.
@@ -60,8 +69,15 @@ Upstream contract check against the `0.2.2-rc.1` source tree:
 - Client contracts: `plugins.row.config`
   (`ui-plugin-manager/src/client/slot-contract.ts:150`), `ConfigPageForm`
   (`:172-177`), `ConfigFormSnapshot`, `ConfigForms.whileServed`,
-  `ctx.slots.inject/register`, `LocaleNamespaceMap`, `Menu` /
-  `IconChevronDownOutlineRegular` are all unchanged.
+  `ctx.slots.inject/register` and `LocaleNamespaceMap` are unchanged. `Menu`
+  and `IconChevronDownOutlineRegular` are source-compatible but not unchanged:
+  `Menu` gained optional `contextual` / `exiting` / `returnFocus` props, its
+  `submenu` type widened from `MenuItem[]` to `MenuEntry[]`, and positioning /
+  refocus internals were rewritten; the chevron is now produced by the
+  `productIcon(...)` glyph factory instead of hand-written SVG. This plugin
+  passes only props that survived (`open`, `anchor`, `items`, `selectedId`,
+  `onSelect`, `onClose`, `align`, `side`) and renders the chevron with no
+  props.
 - Guide §3 checklist: 0 hits in this plugin — no `tools` row composition (so no
   executor / `mode` / `maxParallelSubCalls` surface), no `list-agents`
   sub-entry patch, no `modelSelectionSettings`, no `assembly.tools` read, no
@@ -78,6 +94,15 @@ is not vacuous. This is the in-repo (L1) layer only: the local host is still
 `0.2.1-rc.5`, so a `0.2.2-rc.1` cold start (boot stderr), the Plugins-page
 Configure card, a volatile save, and one real rejection are still to be
 verified live.
+
+Corrections after the `v0.5.2` tag (no runtime or `lib/` change): an earlier
+copy of this section said `dsh-tools` "no longer publishes `src/`" and that
+`Menu` / `IconChevronDownOutlineRegular` were "unchanged"; both claims were
+inaccurate and are corrected above, and the upstream line numbers are now stated
+per train. `scripts/check-official-template.ts` also now derives the package
+root from `@deepseek-ai/dsh-tools/package.json` instead of assuming the entry
+lives under `lib/` (dev tooling only). The tag is immutable, so `main` carries
+the corrected text.
 
 ## 0.5.1 (2026-11-02)
 
