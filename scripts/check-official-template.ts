@@ -20,26 +20,37 @@
  *     published as `lib/pipeline.js` (the `@deepseek-ai/dsh-tools/pipeline`
  *     sub-entry). `lib/index.js` no longer carries the string.
  *
- * The fallback scan over every top-level `lib/*.js` chunk keeps the guard
- * working if a future release moves the literal again inside the same
- * package.
+ * Published tarballs never ship `src/` in the 0.2.x line (`package.json#files`
+ * lists only `lib/` and `locale/`, although `exports` still maps `./src/*`), so
+ * the `src/` candidates only fire in a monorepo checkout.
+ *
+ * The fallback scan over every TOP-LEVEL `lib/*.js` chunk keeps the guard
+ * working if a future release moves the literal to another entry. It is
+ * deliberately not recursive: `lib/types/**` holds the unbundled `tsc` emit,
+ * which can contain the literal in code the bundler no longer reaches, so
+ * scanning it could mask a real drift. A guard failure is not proof of drift —
+ * read the candidate list first.
  */
 import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { dirname } from 'node:path'
 
 const require = createRequire(import.meta.url)
 
 const PREFIX = 'the user rejected tool "'
 
-let resolved: string
+/**
+ * Package root of the installed `@deepseek-ai/dsh-tools`. Resolve
+ * `package.json` rather than the entry point: the entry's location (`lib/`,
+ * or some future layout) is exactly what the guard must not assume.
+ */
+let root: string
 try {
-  resolved = require.resolve('@deepseek-ai/dsh-tools')
+  root = dirname(require.resolve('@deepseek-ai/dsh-tools/package.json'))
 } catch {
   console.error('FAIL  @deepseek-ai/dsh-tools not installed; run `pnpm install` first')
   process.exit(1)
 }
-
-const root = resolved.replace(/\/lib\/.*$/, '')
 const candidates = [
   `${root}/src/pipeline.ts`, // 0.2.2-rc.1+ unpacked source tree
   `${root}/src/index.ts`,    // <= 0.2.1-rc.* unpacked source tree
