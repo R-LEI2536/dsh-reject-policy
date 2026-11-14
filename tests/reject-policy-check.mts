@@ -16,7 +16,7 @@
  * `vendor/loader/src/config/entry.ts`）。测试必须照此取引用，否则 4.1.0 下
  * `fiber.config.mode` 是 undefined。
  *
- * 覆盖 24 条断言：
+ * 覆盖 25 条断言：
  *   1. mode='default' + 无文案配置 → 结果透传（无 flag、无文案改写）。
  *   2. mode 默认 'stop' + messages.bash → 文案改写 + flag。
  *   3. mode='stop' + messages.bash → 文案改写 + flag 置位 + pre-step 返回 reject。
@@ -25,7 +25,7 @@
  *   6. 运行时改 volatile mode='default' → 后续拒绝回到"仅改文案"。
  *   7. resolveMessage 纯函数单测。
  *   8. 0.2.2-rc.3+ 结构化身份：info 优先于文案（文案漂移仍命中、透传 info、
- *      APPROVAL_CANCELLED 不算拒绝、无 info 时兜底不误命中）。
+ *      APPROVAL_CANCELLED / APPROVAL_UNAVAILABLE 不算拒绝、无 info 时兜底不误命中）。
  */
 
 import { Context } from '@deepseek-ai/cordis'
@@ -253,13 +253,25 @@ async function runPreStep(ctx: Context): Promise<{ kind: 'enter' | 'reject' }> {
   expect('CANCELLED 不算拒绝：不改写文案', r2.errorMessage === 'approval for tool "bash" was cancelled', `got=${r2.errorMessage}`)
   expect('CANCELLED 不算拒绝：不置 flag', r2.flagged === false)
 
-  // 8c) 无 info（老宿主）且文案已漂移 → 兜底不误命中。
+  // 8c) APPROVAL_UNAVAILABLE（没有可用审批通道）同样不是"用户拒绝"。
+  mod.clearStopPending(fakeSession)
+  const unavailable = makeRejectionResult('bash', {
+    message: 'tool "bash" requires approval, but no approval channel is available',
+    info: { name: 'ApprovalError', code: 'APPROVAL_UNAVAILABLE' },
+  })
+  const r3 = await runRejection(ctx, 'bash', unavailable)
+  expect(
+    'UNAVAILABLE 不算拒绝：不改写也不置 flag',
+    r3.errorMessage === 'tool "bash" requires approval, but no approval channel is available' && r3.flagged === false,
+  )
+
+  // 8d) 无 info（老宿主）且文案已漂移 → 兜底不误命中。
   mod.clearStopPending(fakeSession)
   const noInfoDrifted = makeRejectionResult('bash', { message: 'The user denied the "bash" call.' })
-  const r3 = await runRejection(ctx, 'bash', noInfoDrifted)
+  const r4 = await runRejection(ctx, 'bash', noInfoDrifted)
   expect(
     '无 info + 文案漂移：兜底不误命中',
-    r3.errorMessage === 'The user denied the "bash" call.' && r3.flagged === false,
+    r4.errorMessage === 'The user denied the "bash" call.' && r4.flagged === false,
   )
 }
 

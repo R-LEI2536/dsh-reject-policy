@@ -76,8 +76,12 @@ return result.error?.message === OFFICIAL_REJECTION_TEMPLATE.replace('{name}', t
 - **只认 `APPROVAL_REJECTED`**：`APPROVAL_CANCELLED`（用户取消审批弹窗）和
   `APPROVAL_UNAVAILABLE`（没有可用审批通道）都不是「用户拒绝」——既不改写，
   也不停 turn。
-- **为什么保留兜底**：peer 仍覆盖 `0.2.1-rc.*` / `0.2.2-rc.1`，这些宿主不写
-  `error.info`，同一份产物要两边都能用。
+- **info 存在但 name/code 不匹配时**继续比字面量（例如将来新增别的审批错误
+  类，或某个失败路径复用了 `ApprovalError` 名字）；字面量匹配是「不匹配」的
+  最终兜底，而不是「info 缺失」专属。
+- **为什么保留兜底**：peer 仍覆盖 `0.2.1-rc.*` / `0.2.2-rc.1`，这些宿主的
+  **审批拒绝结果**不带 `error.info`（其它失败路径自 rc.1 起就可能带 `info`），
+  同一份产物要两边都能用。
 - **兜底的耦合点**：`OFFICIAL_REJECTION_TEMPLATE` 与官方原文耦合——
   0.2.2-rc.3 在 `pipeline.ts:468`（rc.1 为 `:460`，发布产物 `lib/pipeline.js`，
   `@deepseek-ai/dsh-tools/pipeline` 子入口）；旧训练在 `index.ts:1755` /
@@ -124,21 +128,23 @@ plugin-reject-policy/
 ├── README.md                  ← 用户视角：模式表 + 配置 + 协同关系 + 已知限制
 ├── cordis.patch.yml           ← 发布 patch（dsh.bundle.patch 指向此）
 ├── src/index.ts               ← 函数插件（name / Config / apply，无 default export）
-└── tests/reject-policy-check.mts  ← 24 条断言（8 组）全过
+└── tests/reject-policy-check.mts  ← 25 条断言（8 组）全过
 ```
 
 ## 8. 验证状态
 
-> 下表为开发期的仓库内验证；0.3.0（0.1.7-rc.2 对齐）的真机消费侧验证见
+> 当前验证状态（0.5.3，DSH `0.2.2-rc.3` devDeps）见 `CHANGELOG.md` 的 0.5.3
+> 节；下表混有 0.3.0（0.1.7-rc.2 对齐）开发期的记录，测试条数已按当前值更新。
+> 0.3.0 的真机消费侧验证见
 > [UPGRADE-0.1.7-LESSONS.md](./UPGRADE-0.1.7-LESSONS.md) §2 验证矩阵。
 
 | 检查 | 状态 |
 |---|---|
-| `plugin-reject-policy/tests/reject-policy-check.mts` | ✅ 18/18 通过（settings API 迁移到 `installSection` 后重跑验证） |
-| `scratch-plugin/tests/smoke-apply.mts` | ✅ 通过 |
-| `scratch-plugin/tests/gate-check.mts` | ✅ 通过 |
-| `pnpm run typecheck` | ⏸ 未跑（shell sandbox 拒了 `bash`） |
-| `pnpm --filter @deepseek-ai/dsh-agent-loop test` | ⏸ 未跑（同上） |
+| `tests/reject-policy-check.mts` | ✅ 25/25（0.5.3 起在 `0.2.2-rc.3` devDeps 上；0.3.0 时为 18/18） |
+| `pnpm run typecheck` / `typecheck:client` | ✅ 0.5.3 起实跑通过（0.3.0 开发期因 shell sandbox 未跑） |
+| `pnpm run ci:drift` | ✅ 0.5.3 起断言双契约：文案前缀 + `APPROVAL_REJECTED` |
+| `scratch-plugin/tests/smoke-apply.mts`、`gate-check.mts` | ✅ 0.3.0 开发期通过（已不在本仓库） |
+| `pnpm --filter @deepseek-ai/dsh-agent-loop test` | — 不再适用（本仓库不是 monorepo 子包） |
 
 ## 9. 已知限制 / 后续要看的点
 

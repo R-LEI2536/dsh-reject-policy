@@ -14,18 +14,21 @@ longer rests on one upstream sentence alone.
   `pipeline.ts:468`), so `isRejectionResult` checks that identity before falling
   back to the literal `OFFICIAL_REJECTION_TEMPLATE` match. A future upstream
   rewording no longer silently disables the plugin on rc.3+ hosts; the literal
-  stays as the fallback for `0.2.1-rc.*` / `0.2.2-rc.1` hosts, which do not
-  write `error.info`. Only `APPROVAL_REJECTED` counts: `APPROVAL_CANCELLED`
-  (the user cancelled the approval dialog) and `APPROVAL_UNAVAILABLE` (no
-  approval channel) are neither rewritten nor made to stop the turn.
+  stays as the fallback for hosts whose approval denial carries no `error.info`
+  (`0.2.1-rc.*` / `0.2.2-rc.1` — other failure paths already carried `info`
+  there, only the approval denial did not). Only `APPROVAL_REJECTED` counts:
+  `APPROVAL_CANCELLED` (the user cancelled the approval dialog) and
+  `APPROVAL_UNAVAILABLE` (no approval channel) are neither rewritten nor made to
+  stop the turn.
 - feat(host): the `{ kind: 'block' }` decision now passes the upstream
   `error.info` through (`PostToolDecision.block.info` is new on rc.3). Without
   it a rewritten denial lost the structured "this was an approval rejection"
   identity, because the registry rebuilds the failed result from the block
   feedback (`pipeline.ts:501-505`). Older hosts ignore the extra field.
 - chore(deps): the 10 `@deepseek-ai/dsh-*` devDependencies are pinned exactly to
-  `0.2.2-rc.3` (was `0.2.2-rc.1`); `pnpm-lock.yaml` regenerated — 162 `rc.3`
-  resolutions, zero `0.2.2-rc.1` left. `@deepseek-ai/cordis` `4.1.0` /
+  `0.2.2-rc.3` (was `0.2.2-rc.1`); `pnpm-lock.yaml` regenerated — all 29 dsh
+  package snapshots now resolve to `0.2.2-rc.3` (162 lockfile lines reference
+  it), with zero `0.2.2-rc.1` left. `@deepseek-ai/cordis` `4.1.0` /
   `@deepseek-ai/schemastery` `3.19.0` unchanged (same on both sides of the
   corridor).
 - chore(deps): the dsh peer ranges are **unchanged** at
@@ -37,6 +40,15 @@ longer rests on one upstream sentence alone.
 - chore(repo): `lib/` rebuilt against the `0.2.2-rc.3` type surface (host +
   client bundles and `lib/types/`). This release also carries the two commits
   that landed after the `v0.5.2` tag (`295514b` docs, `5c0c539` fix(ci)).
+- fix(build): the inlined CSS-module class map is now emitted in sorted key
+  order (`tsdown.config.ts`). lightningcss returns the class exports in an
+  unstable order, so identical sources used to produce a different
+  `lib/client.js` on every rebuild (the hash values themselves were stable).
+  Two consecutive `pnpm run build` runs now emit byte-identical
+  `lib/client.js` / `lib/index.js` / `lib/types/index.js`.
+- test(ci): `pnpm run ci:drift` now asserts **two** contracts — the rejection
+  text prefix and the `APPROVAL_REJECTED` code — so the structured identity the
+  plugin duplicates locally is guarded as well.
 - **wording**: the shipped `cordis.patch.yml` messages are deliberately
   unchanged — rewording the denial feedback is a separate product decision, not
   part of this alignment.
@@ -76,13 +88,16 @@ Upstream contract check against the `0.2.2-rc.3` source tree:
   `locale/`. The layout-independent fallback is unchanged.
 
 Verified on `0.2.2-rc.3` devDeps (Node 24.18.0, pnpm 11.28.5): `ci:drift`
-(literal found in the installed `dsh-tools/src/pipeline.ts`), host `typecheck`,
-client `typecheck`, `test` (24/24 — case 8 covers the info hit, the info
-pass-through, `APPROVAL_CANCELLED` not counting, and the drifted-message
-fallback), `build`. Boot-gate real computation with the `0.2.2-rc.3` tree's own
-`app-boot` (`packages/boot/app-boot/lib/index.js`): PASS on `0.2.2-rc.3`,
-`0.2.2-rc.1` and `0.2.1-rc.5`; REJECT on `0.2.0-rc.5`; the control group (one
-peer pinned to exact `0.2.2-rc.1`) is REJECT — the check is not vacuous.
+(both assertions: the literal and `APPROVAL_REJECTED`, found in the installed
+`dsh-tools/src/pipeline.ts`), host `typecheck`, client `typecheck`, `test`
+(25/25 — case 8 covers the info hit with drifted text, the info pass-through,
+`APPROVAL_CANCELLED` / `APPROVAL_UNAVAILABLE` not counting, and a
+no-false-positive check for a drifted message without `info`; the positive
+literal fallback is covered by cases 1–7), `build`. Boot-gate real computation
+with the `0.2.2-rc.3` tree's own `app-boot`
+(`packages/boot/app-boot/lib/index.js`): PASS on `0.2.2-rc.3`, `0.2.2-rc.1` and
+`0.2.1-rc.5`; REJECT on `0.2.0-rc.5`; the control group (one peer pinned to
+exact `0.2.2-rc.1`) is REJECT — the check is not vacuous.
 
 Still to verify live once the host moves to `0.2.2-rc.3`: a cold start without
 `dsh: disabling profile plugin row`, the Plugins-page Configure card, a volatile

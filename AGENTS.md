@@ -54,16 +54,16 @@ Run from the repo root with `pnpm`.
 - `pnpm run typecheck` — `tsc --noEmit` against `tsconfig.json` (host tree).
 - `pnpm run typecheck:client` — `tsc --noEmit -p tsconfig.client.json`
   (client tree; `noEmit: true`).
-- `pnpm run ci:drift` — scans the installed `@deepseek-ai/dsh-tools` for the
-  rejection-text prefix. Candidates in order: `src/pipeline.ts` (0.2.2-rc.1+
-  unpacked tree, and every published tarball from 0.2.2-rc.3 — its
-  `package.json#files` now ships `src`), `src/index.ts` (older unpacked tree),
-  `lib/pipeline.js` (0.2.2-rc.1+ published `./pipeline` sub-entry),
-  `lib/index.js` (older published bundle); then a fallback scan over every
-  top-level `lib/*.js` chunk. Exits `1` if upstream drifted. **Always run after
-  upgrading `@deepseek-ai/dsh-tools`.**
+- `pnpm run ci:drift` — scans the installed `@deepseek-ai/dsh-tools` for two
+  contracts: the rejection-text prefix and the `APPROVAL_REJECTED` code.
+  Candidates in order: `src/pipeline.ts` (0.2.2-rc.1+ unpacked tree, and every
+  published tarball from 0.2.2-rc.3 — its `package.json#files` now ships
+  `src`), `src/index.ts` (older unpacked tree), `lib/pipeline.js` (0.2.2-rc.1+
+  published `./pipeline` sub-entry), `lib/index.js` (older published bundle);
+  then a fallback scan over every top-level `lib/*.js` chunk. Exits `1` if
+  either has drifted. **Always run after upgrading `@deepseek-ai/dsh-tools`.**
 - `pnpm run test` — `pnpm ci:drift` then `tsx tests/reject-policy-check.mts`.
-  The check file has 24 assertions across 8 numbered cases; it uses `tsx`
+  The check file has 25 assertions across 8 numbered cases; it uses `tsx`
   directly, no test framework.
 - `pnpm run build` — `pnpm ci:drift` then `tsc -p tsconfig.json` (emits
   `.d.ts` into `lib/types/`) then `tsdown` (bundles host + client).
@@ -164,7 +164,9 @@ Run from the repo root with `pnpm`.
 - `tsdown.config.ts` — two `defineConfig`s: `host` (ESM, node platform, takes
   `lib/types/index.js` as entry) and `client` (browser, takes
   `src/client/index.ts` directly, never `tsc -p tsconfig.client.json`,
-  wraps output in a `window.__ModuleLoader__.load` factory banner).
+  wraps output in a `window.__ModuleLoader__.load` factory banner). The
+  client half's `dsh-css-modules-inline` plugin sorts the lightningcss class
+  map by local name so the emitted bundle is byte-reproducible.
 - `tsconfig.json` excludes `src/client` and `tests`; `tsconfig.client.json`
   is `noEmit` and exists only for the typecheck gate.
 
@@ -192,10 +194,11 @@ Run from the repo root with `pnpm`.
   Renaming one implies renaming the other two plus the cordis patch `id`
   (`cordis.patch.yml`) and `REJECT_POLICY_ROW_CONFIG_KEY`.
 - Rejection detection is structurally first: the persisted `error.info`
-  (`ApprovalError` + `APPROVAL_REJECTED`, 0.2.2-rc.3+) decides, and only when
-  `info` is absent does the literal `OFFICIAL_REJECTION_TEMPLATE` match apply —
-  matched **literally**, including the leading `the` (lowercase); do not
-  lowercase-normalize. `APPROVAL_CANCELLED` / `APPROVAL_UNAVAILABLE` are never
+  (`ApprovalError` + `APPROVAL_REJECTED`, 0.2.2-rc.3+) decides, and when that
+  identity does not match — in particular when `info` is absent on older
+  hosts — the literal `OFFICIAL_REJECTION_TEMPLATE` match is still tried
+  (literal, including the leading `the` (lowercase); do not
+  lowercase-normalize). `APPROVAL_CANCELLED` / `APPROVAL_UNAVAILABLE` are never
   treated as a user rejection.
 - Source comments and `docs/DESIGN.md` are mixed Chinese/English; user-facing
   `README.md` is English. Keep tone consistent when editing each surface.
@@ -250,9 +253,10 @@ rejected inside `engines.dsh`. Consequences that bite this repo:
 - **Upstream drift can break the fallback path.** On 0.2.2-rc.3+ detection
   keys off the persisted `error.info` (`ApprovalError` / `APPROVAL_REJECTED`),
   so an upstream rewording no longer disables the plugin there. The literal
-  `OFFICIAL_REJECTION_TEMPLATE` match remains for hosts that write no
-  `error.info` (`0.2.1-rc.*` / `0.2.2-rc.1`): if upstream rewrites the message
-  *and* drops the structured identity, detection silently returns false — no
+  `OFFICIAL_REJECTION_TEMPLATE` match remains for hosts whose approval denial
+  carries no `error.info` (`0.2.1-rc.*` / `0.2.2-rc.1` — other failure paths
+  already carried `info` there): if upstream rewrites the message *and* drops
+  the structured identity, detection silently returns false — no
   error, no warning. Run `pnpm run ci:drift` (wired into `test` and `build`)
   after upgrading the peer dep; if it fails, update
   `OFFICIAL_REJECTION_TEMPLATE` in `src/index.ts` and re-run. The literal also
@@ -292,7 +296,8 @@ rejected inside `engines.dsh`. Consequences that bite this repo:
 - **The Plugins page itself is gated on 0.2.2-rc.1+.** `ui-plugin-manager`
   wraps the whole page in `remoteAccess.whenAccess('pluginManager/listBundles')`,
   and that endpoint is `owner-only`
-  (`packages/experimental/liveshare/src/endpoint-classification.ts:144`), so a
+  (`packages/experimental/liveshare/src/endpoint-classification.ts:144` on
+  `0.2.2-rc.1`, `:147` on `0.2.2-rc.3`), so a
   non-owner Peer — restricted or not — never mounts `plugins.row.config`; the
   card's absence there is expected host behavior, not a registration bug.
   Verify the card on an owner session.
@@ -319,6 +324,11 @@ rejected inside `engines.dsh`. Consequences that bite this repo:
   precisely to keep the `.d.ts` emit). The `Config` const must keep a
   `z<RuntimeConfig>`-style annotation or the `.d.ts` emit fails with
   TS2742 (portability through the `.pnpm` path).
+- **The client bundle is only reproducible because the class map is sorted.**
+  lightningcss returns CSS-module exports in an unstable order; before
+  `tsdown.config.ts` sorted them, every rebuild produced a different
+  `lib/client.js` (hash values stable, key order not). Keep the sort —
+  without it, a no-op rebuild shows up as a spurious `lib/client.js` diff.
 - **`lib/` must be rebuilt and committed before every tag.** GitHub-source
   installs consume whatever is committed in git — no `prepare`/build step
   runs. A tag whose commit lacks `lib/index.js` installs "successfully" but

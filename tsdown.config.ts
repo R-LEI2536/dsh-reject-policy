@@ -109,7 +109,13 @@ const client = defineConfig({
         })
 
         const classMap: Record<string, string> = {}
-        for (const [local, exp] of Object.entries(cssExports || {})) {
+        // Sort by local name: lightningcss returns `exports` in an internal
+        // (unstable) order, so without this the emitted class map — and with it
+        // `lib/client.js` — differs between identical builds.
+        const entries = Object.entries(cssExports || {}).sort(
+          ([a], [b]) => (a < b ? -1 : a > b ? 1 : 0),
+        )
+        for (const [local, exp] of entries) {
           classMap[local] = exp.name
         }
 
