@@ -11,6 +11,8 @@ When the official `serviceAsk` rejects a tool call, the model receives a fixed d
 
 The plugin does not modify DSH source code. Both behaviors attach to existing waterfalls (`tools/post-execute`, `agent/pre-step`).
 
+A rejection is recognized by the structured identity `error.info = { name: 'ApprovalError', code: 'APPROVAL_REJECTED' }` on DSH `0.2.2-rc.3`+, falling back to the literal denial text `the user rejected tool "<name>"` on older hosts.
+
 ## Behavior modes
 
 `mode` is a **volatile Config field** (see [Configuration](#configuration)); the settings namespace (entry id) is `REJECT_POLICY_SETTINGS_NAMESPACE` (`reject-policy`).
@@ -26,7 +28,7 @@ The plugin does not modify DSH source code. Both behaviors attach to existing wa
 
 ## Installation
 
-Requires DSH `0.2.1-rc.1`+ — built, typechecked and tested against `0.2.2-rc.1`. The `@deepseek-ai/dsh-*` peer ranges are `^0.2.1-rc.1 || ^0.2.2-rc.1`, so the same artifact is accepted by an `0.2.1-rc.*` host and by `0.2.2-rc.1`. The host's boot compatibility gate rejects it on an `0.2.0-rc.*` (or older) host, so install it in the same batch as the host upgrade.
+Requires DSH `0.2.1-rc.1`+ — built, typechecked and tested against `0.2.2-rc.3`. The `@deepseek-ai/dsh-*` peer ranges are `^0.2.1-rc.1 || ^0.2.2-rc.1`, so the same artifact is accepted by an `0.2.1-rc.*` host and by `0.2.2-rc.1` … `rc.3`. The host's boot compatibility gate rejects it on an `0.2.0-rc.*` (or older) host, so install it in the same batch as the host upgrade.
 
 ```sh
 dsh plugin --profile web add "link:/path/to/dsh-reject-policy"
@@ -112,7 +114,8 @@ the user.
 
 ## Known Limitations and Deferred Work
 
-- **`OFFICIAL_REJECTION_TEMPLATE` is hardcoded** to `the user rejected tool "{name}"`. If upstream DSH rewrites that string in the approval denial path, this plugin silently stops detecting rejections (no error, no warning — just no behavior). `pnpm run ci:drift` (wired into `pnpm test` / `pnpm build`) scans the installed `@deepseek-ai/dsh-tools` package (unpacked `src/` when shipped, otherwise the published `lib/*.js` chunks) for the prefix and exits 1 if it has drifted — run `pnpm test` or `pnpm build` after upgrading DSH to catch this locally. The literal has already moved twice — `src/index.ts` on `0.2.0-rc.*` / `0.2.1-rc.*` (line `1755` → `1763`), published as `lib/index.js`, then `src/pipeline.ts` / published `lib/pipeline.js` on `0.2.2-rc.1`. Published tarballs carry only `lib/` and `locale/` (never `src/`), so the guard reads whichever layout is installed.
+- **Rejection detection** prefers the structured identity `error.info = { name: 'ApprovalError', code: 'APPROVAL_REJECTED' }` that DSH `0.2.2-rc.3`+ records on the denied tool result (`packages/core/tools/src/error-codes.ts:9-12`); only `APPROVAL_REJECTED` counts, not `APPROVAL_CANCELLED` / `APPROVAL_UNAVAILABLE`. On `0.2.1-rc.*` / `0.2.2-rc.1` hosts (no `error.info`) it falls back to the literal `OFFICIAL_REJECTION_TEMPLATE` `the user rejected tool "<name>"`; if upstream ever rewrites that string, the fallback path silently stops detecting rejections. `pnpm run ci:drift` (wired into `pnpm test` / `pnpm build`) scans the installed `@deepseek-ai/dsh-tools` package (unpacked `src/` when shipped, otherwise the published `lib/*.js` chunks) for the prefix and exits 1 if it has drifted — run `pnpm test` or `pnpm build` after upgrading DSH to catch this locally. The literal has already moved twice — `src/index.ts` on `0.2.0-rc.*` / `0.2.1-rc.*` (line `1755` → `1763`), published as `lib/index.js`, then `src/pipeline.ts` / published `lib/pipeline.js` on `0.2.2-rc.1`+ (`:460` on rc.1, `:468` on rc.3). Published tarballs carried only `lib/` and `locale/` through `0.2.2-rc.1`; `0.2.2-rc.3` also ships `src`, so the guard reads whichever layout is installed.
+- **The rewrite still targets `error.message`.** Upstream's `ToolErrorInfo.reason` is durable-only — its comment states that model-facing content does not include it — so changing what the model reads still requires rewriting the message. The plugin passes the original `error.info` through on its `block` decision, so downstream consumers keep seeing the approval identity after a rewrite.
 - **Coverage** is limited to tool calls that go through the agent loop. Harness-internal bash and other out-of-loop tool calls are not observable here.
 - **`mode` defaults to `'stop'`**, which closes the turn on the very first rejection. Consumers that want "rewrite only, never halt" should set `mode: 'default'` at install time or toggle it through the Plugins page.
 - **The card exposes only `mode`.** `stopOnRejectTools` is runtime-editable through `ctx.settings.update` but has no UI control on the row page yet.
@@ -122,11 +125,11 @@ the user.
 
 - [docs/DESIGN.md](./docs/DESIGN.md) — design rationale, implementation mechanism, rejected alternatives.
 - [docs/UPGRADE-0.1.7-LESSONS.md](./docs/UPGRADE-0.1.7-LESSONS.md) — the 0.1.7-rc.2 migration retrospective: live-test matrix, pitfalls (version floors, volatile typing, the retired Settings entry), and a reusable upgrade checklist.
-- `@deepseek-ai/dsh-tools` — upstream approval rejection flow that this plugin detects (`packages/core/tools/src/pipeline.ts:460` on `0.2.2-rc.1`; `src/index.ts:1763` on `0.2.1-rc.*`, `1755` on `0.2.0-rc.*`).
+- `@deepseek-ai/dsh-tools` — upstream approval rejection flow that this plugin detects (`packages/core/tools/src/pipeline.ts:468` on `0.2.2-rc.3`, `:460` on `0.2.2-rc.1`; `src/index.ts:1763` on `0.2.1-rc.*`, `1755` on `0.2.0-rc.*`).
 
 ## Verification
 
-Building and verifying against the `0.2.2-rc.1` devDeps requires Node `>= 24.9.0` (that toolchain dropped Node 22). The published plugin has no separate Node floor of its own — it runs on whatever Node the host runs.
+Building and verifying against the `0.2.2-rc.3` devDeps requires Node `>= 24.9.0` (that toolchain dropped Node 22). The published plugin has no separate Node floor of its own — it runs on whatever Node the host runs.
 
 ```sh
 pnpm install
@@ -137,4 +140,4 @@ pnpm run test
 pnpm run build
 ```
 
-`pnpm run test` runs the in-tree smoke test (`tests/reject-policy-check.mts`); it asserts 18 cases covering mode toggles, message resolution, template substitution, and tool-scope filtering.
+`pnpm run test` runs the in-tree smoke test (`tests/reject-policy-check.mts`); it asserts 24 checks across 8 cases covering mode toggles, message resolution, template substitution, tool-scope filtering, and the structured rejection identity (`error.info` hit, `info` pass-through, `APPROVAL_CANCELLED` not counting, literal fallback when `info` is absent).

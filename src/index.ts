@@ -92,11 +92,24 @@ export const Config = z.object({
 }) as z<RuntimeConfig>
 
 /**
- * 官方审批拒绝写出的拒因模板。0.2.2-rc.1 起位于 execution pipeline
- * （`packages/core/tools/src/pipeline.ts:460`，发布产物 `lib/pipeline.js`）；
+ * 官方审批拒绝写出的拒因模板。0.2.2-rc.3 起仍位于 execution pipeline
+ * （`packages/core/tools/src/pipeline.ts:468`，发布产物 `lib/pipeline.js`）；
  * 旧训练在 `index.ts:1755` / `1763`。行号仅供定位，匹配靠字面前缀。
+ *
+ * 0.2.2-rc.3 起本模板只作**兜底**：拒绝结果带上结构化身份
+ * `error.info = { name: 'ApprovalError', code: 'APPROVAL_REJECTED' }`
+ * （`packages/core/tools/src/error-codes.ts:9-12`），检测优先用它，见
+ * {@link isRejectionResult}。
  */
 export const OFFICIAL_REJECTION_TEMPLATE = 'the user rejected tool "{name}"'
+
+/**
+ * 审批拒绝结果的结构化身份（0.2.2-rc.3+）。上游不 re-export 这两个字符串
+ * （`error-codes.ts` 的注释是「the values are persisted contract … consumers
+ * compare the recorded strings」），所以按持久化契约值本地复刻，不 import。
+ */
+const APPROVAL_ERROR_NAME = 'ApprovalError'
+const APPROVAL_REJECTED = 'APPROVAL_REJECTED'
 
 /**
  * 解析一个 tool 的最终拒因：messages[name] → defaultMessage（带占位替换）→ undefined。
@@ -125,23 +138,35 @@ export function isStopPending(session: Session): boolean { return stopPending.ge
 export function clearStopPending(session: Session): void { stopPending.delete(session) }
 
 /**
- * 判断检测：result 是官方审批拒绝生成的拒绝结果。匹配
- * `packages/core/tools/src/pipeline.ts:460`（0.2.2-rc.1；旧训练为
- * `index.ts:1755`）写出的 `the user rejected tool "X"`。
+ * 判断检测：result 是官方审批拒绝生成的拒绝结果。
+ *
+ * 0.2.2-rc.3 起优先看**结构化身份** `error.info`
+ * （`{ name: 'ApprovalError', code: 'APPROVAL_REJECTED' }`，由
+ * `packages/core/tools/src/pipeline.ts:468` 的 `approvalDenial(...)` 写入并持久化）：
+ * 文案是写给人读的，`code` 才是给程序读的契约，上游改措辞不会让本插件静默失效。
+ * 只认 `APPROVAL_REJECTED`——`APPROVAL_CANCELLED`（用户取消了审批弹窗）与
+ * `APPROVAL_UNAVAILABLE`（没有可用审批通道）都不是「用户拒绝」：既不改写，
+ * 也不停 turn。
+ *
+ * 0.2.2-rc.1 及更早的宿主不写 `error.info`，回落到字面前缀匹配。兜底路径
+ * 仍受 `pnpm ci:drift` 守护（见 `scripts/check-official-template.ts`）。
  */
 function isRejectionResult(toolName: string, result: ToolExecutionResult): boolean {
   if (!result.isError) return false
-  const message = result.error?.message
-  return message === OFFICIAL_REJECTION_TEMPLATE.replace('{name}', toolName)
+  const info = result.error?.info
+  if (info?.name === APPROVAL_ERROR_NAME && info.code === APPROVAL_REJECTED) return true
+  return result.error?.message === OFFICIAL_REJECTION_TEMPLATE.replace('{name}', toolName)
 }
 
 /** apply — 插件装载入口。注册 post-execute 改写与 pre-step 置停两个 waterfall。 */
 export function apply(ctx: Context, config: RuntimeConfig): void {
-  // 一次性提示：拒因检测靠 OFFICIAL_REJECTION_TEMPLATE 字面相等，上游改前缀
-  // 会让本插件静默失效。用户如果发现配置不灵了，跑 `pnpm ci:drift` 自查。
+  // 一次性提示：检测优先用 0.2.2-rc.3+ 的结构化 `error.info`；老宿主回落到
+  // OFFICIAL_REJECTION_TEMPLATE 字面相等——上游改前缀会让兜底路径静默失效。
+  // 用户如果发现配置不灵了，跑 `pnpm ci:drift` 自查。
   console.warn(
-    '[dsh-reject-policy] detection matches OFFICIAL_REJECTION_TEMPLATE literally. ' +
-    'If you upgrade DSH and overrides silently stop working, run `pnpm ci:drift` to verify upstream has not drifted.',
+    '[dsh-reject-policy] detection prefers the structured ApprovalError/APPROVAL_REJECTED info ' +
+    '(DSH 0.2.2-rc.3+) and falls back to a literal match on OFFICIAL_REJECTION_TEMPLATE. ' +
+    'If overrides silently stop working, run `pnpm ci:drift` to verify upstream has not drifted.',
   )
   // 非 volatile 文案配置：patch 变更走 Loader 整行重挂，apply 会重新捕获，
   // 因此这里快照一次即可；volatile 字段经 `.get()` 事件时读。
@@ -186,9 +211,13 @@ export function apply(ctx: Context, config: RuntimeConfig): void {
     // mode='stop' 时置 session 待停：下一轮 agent/pre-step 会被关掉。
     if (mode === 'stop') stopPending.set(exec.agent.session, true)
 
+    // 透传上游的结构化身份：宿主的 postExecute 会用 feedback 重建 error，
+    // 不带 info 的话下游（宿主统计 / 其他插件）就看不到这是一次审批拒绝了。
+    const info = result.error?.info
     return {
       kind: 'block',
       feedback: [{ type: 'text', text }],
+      ...(info === undefined ? {} : { info }),
     }
   })
 

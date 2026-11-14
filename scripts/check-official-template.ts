@@ -20,9 +20,11 @@
  *     published as `lib/pipeline.js` (the `@deepseek-ai/dsh-tools/pipeline`
  *     sub-entry). `lib/index.js` no longer carries the string.
  *
- * Published tarballs never ship `src/` in the 0.2.x line (`package.json#files`
- * lists only `lib/` and `locale/`, although `exports` still maps `./src/*`), so
- * the `src/` candidates only fire in a monorepo checkout.
+ * Through 0.2.2-rc.1 the published tarball shipped no `src/` (`package.json#files`
+ * listed only `lib/` and `locale/`, although `exports` still maps `./src/*`), so
+ * the `src/` candidates fired only in a monorepo checkout. From 0.2.2-rc.3
+ * `files` also ships `src`, so `src/pipeline.ts` now fires for a normal install
+ * too — the layout-independent guard below still covers older tarballs.
  *
  * The fallback scan over every TOP-LEVEL `lib/*.js` chunk keeps the guard
  * working if a future release moves the literal to another entry. It is

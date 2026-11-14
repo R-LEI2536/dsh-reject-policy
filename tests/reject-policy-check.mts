@@ -16,7 +16,7 @@
  * `vendor/loader/src/config/entry.ts`）。测试必须照此取引用，否则 4.1.0 下
  * `fiber.config.mode` 是 undefined。
  *
- * 覆盖 18 条断言：
+ * 覆盖 24 条断言：
  *   1. mode='default' + 无文案配置 → 结果透传（无 flag、无文案改写）。
  *   2. mode 默认 'stop' + messages.bash → 文案改写 + flag。
  *   3. mode='stop' + messages.bash → 文案改写 + flag 置位 + pre-step 返回 reject。
@@ -24,6 +24,8 @@
  *   5. mode='stop' + defaultMessage='permission denied for {tool}' → 模板替换。
  *   6. 运行时改 volatile mode='default' → 后续拒绝回到"仅改文案"。
  *   7. resolveMessage 纯函数单测。
+ *   8. 0.2.2-rc.3+ 结构化身份：info 优先于文案（文案漂移仍命中、透传 info、
+ *      APPROVAL_CANCELLED 不算拒绝、无 info 时兜底不误命中）。
  */
 
 import { Context } from '@deepseek-ai/cordis'
@@ -60,11 +62,19 @@ const makeExec = (name: string) => ({
   token: Symbol('token'),
 })
 
-const makeRejectionResult = (toolName: string) => ({
-  isError: true as const,
-  error: { message: mod.OFFICIAL_REJECTION_TEMPLATE.replace('{name}', toolName) },
-  content: [{ type: 'text' as const, text: `Error: ${mod.OFFICIAL_REJECTION_TEMPLATE.replace('{name}', toolName)}` }],
-})
+const makeRejectionResult = (
+  toolName: string,
+  extra: { message?: string; info?: { name: string; code: string } } = {},
+) => {
+  // 0.2.2-rc.3+ 的真实拒绝结果同时带 `error.info` 结构化身份；省略 info 即
+  // 模拟 0.2.2-rc.1 及更早宿主（只有 message，靠字面量兜底）。
+  const message = extra.message ?? mod.OFFICIAL_REJECTION_TEMPLATE.replace('{name}', toolName)
+  return {
+    isError: true as const,
+    error: { message, ...(extra.info === undefined ? {} : { info: extra.info }) },
+    content: [{ type: 'text' as const, text: `Error: ${message}` }],
+  }
+}
 
 // ── 工具：装载插件 + 返回 ctx/setConfig ─────────────────────────────────
 async function mount(config: Parameters<typeof mod.apply>[1]): Promise<{
@@ -91,9 +101,13 @@ async function mount(config: Parameters<typeof mod.apply>[1]): Promise<{
 async function runRejection(
   ctx: Context,
   toolName: string,
-): Promise<{ errorMessage: string | undefined; flagged: boolean }> {
+  result: ReturnType<typeof makeRejectionResult> = makeRejectionResult(toolName),
+): Promise<{
+  errorMessage: string | undefined
+  flagged: boolean
+  info: { name: string; code: string } | undefined
+}> {
   const exec = makeExec(toolName)
-  const result = makeRejectionResult(toolName)
   // next() 默认走"accept"，下游不会改写——本测试只验证本插件的 listener 行为。
   const decision = await ctx.waterfall(
     ctx, 'tools/post-execute', exec, result,
@@ -105,6 +119,7 @@ async function runRejection(
   return {
     errorMessage,
     flagged: mod.isStopPending(fakeSession),
+    info: decision.kind === 'block' ? decision.info : undefined,
   }
 }
 
@@ -205,6 +220,46 @@ async function runPreStep(ctx: Context): Promise<{ kind: 'enter' | 'reject' }> {
   expect(
     'resolveMessage: 全空 → undefined',
     mod.resolveMessage({}, 'bash') === undefined,
+  )
+}
+
+// ── 8) 0.2.2-rc.3+ 结构化身份：error.info 优先于文案 ─────────────────────────
+{
+  const { ctx } = await mount({ stopOnRejectTools: [], messages: { bash: 'permission denied by user' } })
+
+  // 8a) 上游改写了文案，但 info 仍是 ApprovalError/APPROVAL_REJECTED → 仍命中，
+  //     且 block 决策把结构化身份透传给下游。
+  mod.clearStopPending(fakeSession)
+  const drifted = makeRejectionResult('bash', {
+    message: 'The user denied the "bash" call.',
+    info: { name: 'ApprovalError', code: 'APPROVAL_REJECTED' },
+  })
+  const r1 = await runRejection(ctx, 'bash', drifted)
+  expect('info 命中：上游改文案仍改写', r1.errorMessage === 'permission denied by user', `got=${r1.errorMessage}`)
+  expect(
+    'info 命中：block 决策透传结构化身份',
+    r1.info?.name === 'ApprovalError' && r1.info.code === 'APPROVAL_REJECTED',
+    `got=${JSON.stringify(r1.info)}`,
+  )
+  expect('info 命中：仍置 flag', r1.flagged === true)
+
+  // 8b) APPROVAL_CANCELLED（用户取消审批弹窗）不是"用户拒绝"：不改写、不停 turn。
+  mod.clearStopPending(fakeSession)
+  const cancelled = makeRejectionResult('bash', {
+    message: 'approval for tool "bash" was cancelled',
+    info: { name: 'ApprovalError', code: 'APPROVAL_CANCELLED' },
+  })
+  const r2 = await runRejection(ctx, 'bash', cancelled)
+  expect('CANCELLED 不算拒绝：不改写文案', r2.errorMessage === 'approval for tool "bash" was cancelled', `got=${r2.errorMessage}`)
+  expect('CANCELLED 不算拒绝：不置 flag', r2.flagged === false)
+
+  // 8c) 无 info（老宿主）且文案已漂移 → 兜底不误命中。
+  mod.clearStopPending(fakeSession)
+  const noInfoDrifted = makeRejectionResult('bash', { message: 'The user denied the "bash" call.' })
+  const r3 = await runRejection(ctx, 'bash', noInfoDrifted)
+  expect(
+    '无 info + 文案漂移：兜底不误命中',
+    r3.errorMessage === 'The user denied the "bash" call.' && r3.flagged === false,
   )
 }
 

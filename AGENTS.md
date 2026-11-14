@@ -5,12 +5,13 @@ rejected, and optionally halts the turn after the rejection.
 
 ## Project
 
-- Standalone DSH plugin package (version `0.5.2`, `name = dsh-reject-policy`).
-- Targets DSH `0.2.1-rc.*` and `0.2.2-rc.1` (`^0.2.1-rc.1 || ^0.2.2-rc.1` peer
-  ranges; the 10 consumed `@deepseek-ai/dsh-*` packages are also pinned as exact
-  `devDependencies` to the latest verified rc for typecheck/build). Installs on
-  an `0.2.0-rc.*` or older host are rejected by the boot compatibility gate.
-- Building and verifying against the `0.2.2-rc.1` devDeps requires Node
+- Standalone DSH plugin package (version `0.5.3`, `name = dsh-reject-policy`).
+- Targets DSH `0.2.1-rc.*` and `0.2.2-rc.1` … `rc.3` (`^0.2.1-rc.1 ||
+  ^0.2.2-rc.1` peer ranges; the 10 consumed `@deepseek-ai/dsh-*` packages are
+  also pinned as exact `devDependencies` to the latest verified rc
+  (`0.2.2-rc.3`) for typecheck/build). Installs on an `0.2.0-rc.*` or older
+  host are rejected by the boot compatibility gate.
+- Building and verifying against the `0.2.2-rc.3` devDeps requires Node
   `>= 24.9.0` (that train dropped Node 22). The published plugin has no Node
   floor of its own; it runs on whatever Node the host runs.
 - Lives at the repo root, deliberately **not** inside a `packages/` directory
@@ -46,19 +47,23 @@ Run from the repo root with `pnpm`.
   (the system store at `~/.local/share/pnpm/store/v11/` is read-only and
   pnpm errors with `ERR_PNPM_EROFS` mid-resolve). Pass `--store-dir=.pnpm-store`
   on the CLI as a belt-and-braces measure; `CI=true` is also required because
-  pnpm refuses to recreate `node_modules` without a TTY.
+  pnpm refuses to recreate `node_modules` without a TTY. When bumping the dsh
+  train, add `--no-frozen-lockfile --config.minimumReleaseAge=0` (`CI=true`
+  implies a frozen lockfile, and pnpm 11's default 1440-minute release-age
+  window would otherwise resolve back to the previous rc).
 - `pnpm run typecheck` — `tsc --noEmit` against `tsconfig.json` (host tree).
 - `pnpm run typecheck:client` — `tsc --noEmit -p tsconfig.client.json`
   (client tree; `noEmit: true`).
 - `pnpm run ci:drift` — scans the installed `@deepseek-ai/dsh-tools` for the
   rejection-text prefix. Candidates in order: `src/pipeline.ts` (0.2.2-rc.1+
-  unpacked tree), `src/index.ts` (older unpacked tree), `lib/pipeline.js`
-  (0.2.2-rc.1+ published `./pipeline` sub-entry), `lib/index.js` (older
-  published bundle); then a fallback scan over every top-level `lib/*.js`
-  chunk. Exits `1` if upstream drifted. **Always run after upgrading
-  `@deepseek-ai/dsh-tools`.**
+  unpacked tree, and every published tarball from 0.2.2-rc.3 — its
+  `package.json#files` now ships `src`), `src/index.ts` (older unpacked tree),
+  `lib/pipeline.js` (0.2.2-rc.1+ published `./pipeline` sub-entry),
+  `lib/index.js` (older published bundle); then a fallback scan over every
+  top-level `lib/*.js` chunk. Exits `1` if upstream drifted. **Always run after
+  upgrading `@deepseek-ai/dsh-tools`.**
 - `pnpm run test` — `pnpm ci:drift` then `tsx tests/reject-policy-check.mts`.
-  The check file has 18 assertions across 7 numbered cases; it uses `tsx`
+  The check file has 24 assertions across 8 numbered cases; it uses `tsx`
   directly, no test framework.
 - `pnpm run build` — `pnpm ci:drift` then `tsc -p tsconfig.json` (emits
   `.d.ts` into `lib/types/`) then `tsdown` (bundles host + client).
@@ -94,9 +99,12 @@ Run from the repo root with `pnpm`.
   `OFFICIAL_REJECTION_TEMPLATE`, `resolveMessage`, `isStopPending`,
   `clearStopPending`, plus the re-exports from `shared.ts`.
   - `tools/post-execute` listener: when `exec.agent` exists, the tool name is
-    in `stopOnRejectTools`, and `result.error.message` literally matches
-    `the user rejected tool "<name>"` → return `{ kind: 'block', feedback }`
-    with the resolved text, and (when `mode === 'stop'`) set a
+    in `stopOnRejectTools`, and the result is an approval rejection
+    (`error.info.name === 'ApprovalError'` + `error.info.code ===
+    'APPROVAL_REJECTED'` on 0.2.2-rc.3+; otherwise `result.error.message`
+    literally matches `the user rejected tool "<name>"`) → return
+    `{ kind: 'block', feedback, info }` with the resolved text and the upstream
+    `info` passed through, and (when `mode === 'stop'`) set a
     `WeakMap<Session, true>` stop-pending flag.
   - `agent/pre-step` listener: if the flag is set, delete it and return
     `{ kind: 'reject' }` so the agent loop closes the turn with
@@ -110,7 +118,7 @@ Run from the repo root with `pnpm`.
     via a conditional `ctx.inject(['settings'], ...)` block (needs
     `import type {} from '@deepseek-ai/dsh-settings'` for typing; a host
     without the settings service simply never runs the block).
-  - Mounts a one-shot `console.warn` so users notice the literal-template
+  - Mounts a one-shot `console.warn` so users notice the literal-fallback
     coupling. Keep the warning when refactoring.
 - `src/shared.ts` — **pure type/constant surface** shared by host and client.
   Zero runtime imports. The client bundle's purity gate forbids adding
@@ -183,9 +191,12 @@ Run from the repo root with `pnpm`.
   package `name` is `dsh-reject-policy` (`REJECT_POLICY_PACKAGE_NAME`).
   Renaming one implies renaming the other two plus the cordis patch `id`
   (`cordis.patch.yml`) and `REJECT_POLICY_ROW_CONFIG_KEY`.
-- The detection text is matched **literally**, including the leading `the`
-  (lowercase). Do not lowercase-normalize — the published upstream message
-  is itself lowercase.
+- Rejection detection is structurally first: the persisted `error.info`
+  (`ApprovalError` + `APPROVAL_REJECTED`, 0.2.2-rc.3+) decides, and only when
+  `info` is absent does the literal `OFFICIAL_REJECTION_TEMPLATE` match apply —
+  matched **literally**, including the leading `the` (lowercase); do not
+  lowercase-normalize. `APPROVAL_CANCELLED` / `APPROVAL_UNAVAILABLE` are never
+  treated as a user rejection.
 - Source comments and `docs/DESIGN.md` are mixed Chinese/English; user-facing
   `README.md` is English. Keep tone consistent when editing each surface.
 - `.env` at the repo root holds local harness dev secrets; it is
@@ -236,18 +247,28 @@ rejected inside `engines.dsh`. Consequences that bite this repo:
 
 ## Pitfalls
 
-- **Upstream drift silently breaks detection.** If `@deepseek-ai/dsh-tools`
-  rewrites the rejection message, the literal-match check returns false and
-  the plugin appears to do nothing — no error, no warning. Run
-  `pnpm run ci:drift` (wired into `test` and `build`) after upgrading the
-  peer dep; if it fails, update `OFFICIAL_REJECTION_TEMPLATE` in
-  `src/index.ts` and re-run. The literal also MOVES between releases without
-  changing text (`src/index.ts` → `src/pipeline.ts` on 0.2.2-rc.1, published
-  `lib/index.js` → `lib/pipeline.js`), and the published package ships no
-  `src/` at all in the 0.2.x line (`package.json#files` = `lib/` + `locale/`,
-  while `exports` still maps `./src/*`) — that is why the guard checks several
-  locations plus a `lib/*.js` fallback. A guard failure is not proof of drift;
-  read its candidate list first.
+- **Upstream drift can break the fallback path.** On 0.2.2-rc.3+ detection
+  keys off the persisted `error.info` (`ApprovalError` / `APPROVAL_REJECTED`),
+  so an upstream rewording no longer disables the plugin there. The literal
+  `OFFICIAL_REJECTION_TEMPLATE` match remains for hosts that write no
+  `error.info` (`0.2.1-rc.*` / `0.2.2-rc.1`): if upstream rewrites the message
+  *and* drops the structured identity, detection silently returns false — no
+  error, no warning. Run `pnpm run ci:drift` (wired into `test` and `build`)
+  after upgrading the peer dep; if it fails, update
+  `OFFICIAL_REJECTION_TEMPLATE` in `src/index.ts` and re-run. The literal also
+  MOVES between releases without changing text (`src/index.ts` →
+  `src/pipeline.ts` on 0.2.2-rc.1, published `lib/index.js` →
+  `lib/pipeline.js`), and through 0.2.2-rc.1 the published package shipped no
+  `src/` at all (`package.json#files` = `lib/` + `locale/`, while `exports`
+  still maps `./src/*`) — that is why the guard checks several locations plus a
+  `lib/*.js` fallback. From 0.2.2-rc.3 `files` also ships `src`, so the first
+  candidate fires for tarball installs too. A guard failure is not proof of
+  drift; read its candidate list first.
+- **A `block` decision's `info` must be passed through.** The registry rebuilds
+  a blocked result as `{ message, ...decision.info }` (`pipeline.ts:501-505`),
+  so blocking a rejection without re-attaching `info` would erase the upstream
+  approval identity. Keep the conditional spread in `src/index.ts`; only
+  `APPROVAL_REJECTED` may be re-attached, never invented for cancel/unavailable.
 - **Coverage gap.** The plugin only sees tool calls that flow through the
   agent loop. Harness-internal bash and other out-of-loop tool calls are
   invisible; do not promise otherwise.
@@ -311,9 +332,9 @@ rejected inside `engines.dsh`. Consequences that bite this repo:
   `build`) plus reviewer discipline.
 - **Upstream line numbers in `OFFICIAL_REJECTION_TEMPLATE`'s comments**
   (`packages/core/tools/src/index.ts:1755` on 0.2.0-rc.*, `1763` on
-  0.2.1-rc.*, now `packages/core/tools/src/pipeline.ts:460` on 0.2.2-rc.1, in
-  `README.md` and `docs/DESIGN.md`) drift across DSH releases, and the file
-  itself can move.
+  0.2.1-rc.*, `packages/core/tools/src/pipeline.ts:460` on 0.2.2-rc.1 and
+  `:468` on 0.2.2-rc.3, in `README.md` and `docs/DESIGN.md`) drift across DSH
+  releases, and the file itself can move.
   Do not "fix" the constant to match a line — the constant must match the
   actual message text. Treat locations as informational only; the drift check
   asserts on the stable string prefix `the user rejected tool "`.

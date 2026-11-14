@@ -27,21 +27,22 @@
 ## 3. 实现机制（三个 listener）
 
 ```
-[serviceAsk] → deny: "the user rejected tool "X""
+[serviceAsk] → deny: message="the user rejected tool "X""
+                     info={ name: 'ApprovalError', code: 'APPROVAL_REJECTED' }   ← 0.2.2-rc.3+；旧宿主只有 message
         ↓
-[materializeFinalResult] → result.error.message === 'the user rejected tool "X"'
+[materializeFinalResult] → result.error.message / result.error.info
         ↓
 [tools/post-execute waterfall]
         ↓ (我们的 listener)
         ├─ exec.agent === undefined → next() 透传
         ├─ !inScope(exec.name) → next() 透传
-        ├─ !isRejectionResult(...) → next() 透传
+        ├─ !isRejectionResult(...) → next() 透传   ← info 优先，字面量兜底
         └─ 命中：
               ├─ resolveMessage(cfg, exec.name) 决定新文本
               ├─ mode === 'stop' → WeakMap<Session, true>.set(session, true)
-              └─ return { kind: 'block', feedback: [{ type: 'text', text }] }
+              └─ return { kind: 'block', feedback: [{ type: 'text', text }], info }   ← 透传上游 info
         ↓
-[registry postExecute] → 用新文案重做错误结果
+[registry postExecute] → 用新文案重做错误结果（带上 info）
 
 [下一轮 agent/pre-step waterfall]
         ↓ (我们的 listener)
@@ -51,18 +52,41 @@
 [ReactLoopAgent.turn()] → turnEnds = { kind: 'blocked' }，return false
 ```
 
-## 4. 检测的硬编码
+## 4. 检测：结构化身份优先 + 字面量兜底
+
+0.2.2-rc.3 起上游在拒绝结果上写**会持久化**的结构化身份：
 
 ```typescript
-const OFFICIAL_REJECTION_TEMPLATE = 'the user rejected tool "{name}"'
+// packages/core/tools/src/error-codes.ts:9-12
+APPROVAL_ERROR_NAME = 'ApprovalError'
+APPROVAL_REJECTED = 'APPROVAL_REJECTED'
+// packages/core/tools/src/pipeline.ts:468
+decision: approvalDenial(`the user rejected tool "${exec.name}"`, APPROVAL_REJECTED)
+// → 结果落盘为 error: { message: '…', info: { name: 'ApprovalError', code: 'APPROVAL_REJECTED' } }
 ```
 
-匹配 `result.error.message === OFFICIAL_REJECTION_TEMPLATE.replace('{name}', exec.name)`。
+`isRejectionResult` 先比 `error.info`，未命中再比字面量：
 
-**耦合点**：官方原文改了，本常量必须同步更新。0.2.2-rc.1 起原文在
-`packages/core/tools/src/pipeline.ts:460`（发布产物 `lib/pipeline.js`，
-`@deepseek-ai/dsh-tools/pipeline` 子入口）；旧训练在 `index.ts:1755` /
-`1763`。行号只用于定位，`ci:drift` 断言的是稳定字面前缀。
+```typescript
+const info = result.error?.info
+if (info?.name === APPROVAL_ERROR_NAME && info.code === APPROVAL_REJECTED) return true
+return result.error?.message === OFFICIAL_REJECTION_TEMPLATE.replace('{name}', toolName)
+```
+
+- **只认 `APPROVAL_REJECTED`**：`APPROVAL_CANCELLED`（用户取消审批弹窗）和
+  `APPROVAL_UNAVAILABLE`（没有可用审批通道）都不是「用户拒绝」——既不改写，
+  也不停 turn。
+- **为什么保留兜底**：peer 仍覆盖 `0.2.1-rc.*` / `0.2.2-rc.1`，这些宿主不写
+  `error.info`，同一份产物要两边都能用。
+- **兜底的耦合点**：`OFFICIAL_REJECTION_TEMPLATE` 与官方原文耦合——
+  0.2.2-rc.3 在 `pipeline.ts:468`（rc.1 为 `:460`，发布产物 `lib/pipeline.js`，
+  `@deepseek-ai/dsh-tools/pipeline` 子入口）；旧训练在 `index.ts:1755` /
+  `1763`。行号只用于定位，`ci:drift` 断言的是稳定字面前缀。
+- **为什么透传 `info`**：rc.3 的 registry 用 block 的 feedback 重建失败结果
+  （`pipeline.ts:501-505`），不带 `info` 就等于把上游刚加的结构化身份丢掉；
+  `PostToolDecision.block.info` 正是为此新增的。
+- **为什么仍然改写 `message`**：`ToolErrorInfo.reason` 的注释明确「model-facing
+  content does not include it」——结构化通道不达模型，改文案仍是唯一办法。
 
 ## 5. 为什么用 `agent/pre-step` reject 而不是 abort signal
 
@@ -100,7 +124,7 @@ plugin-reject-policy/
 ├── README.md                  ← 用户视角：模式表 + 配置 + 协同关系 + 已知限制
 ├── cordis.patch.yml           ← 发布 patch（dsh.bundle.patch 指向此）
 ├── src/index.ts               ← 函数插件（name / Config / apply，无 default export）
-└── tests/reject-policy-check.mts  ← 18 条断言全过
+└── tests/reject-policy-check.mts  ← 24 条断言（8 组）全过
 ```
 
 ## 8. 验证状态
@@ -118,7 +142,7 @@ plugin-reject-policy/
 
 ## 9. 已知限制 / 后续要看的点
 
-1. **OFFICIAL_REJECTION_TEMPLATE 与官方文本耦合**：官方改文案 → 这里必须改。
+1. **字面量兜底仍与官方文本耦合**：0.2.2-rc.3+ 靠结构化 `error.info` 判断，上游改文案不再致命；但 `0.2.1-rc.*` / `0.2.2-rc.1` 宿主只能走字面量，那时官方改文案 → `OFFICIAL_REJECTION_TEMPLATE` 必须同步（`ci:drift` 会红）。
 2. **文案不进 settings**：和用户对齐过的取舍，不是 bug。
 3. **plugin 路径不在 `packages/`**：因为是部署侧 composition，不属于官方包。
 4. **不在 agent loop 之外的 bash 工具调用上生效**：harness 自己的 bash 工具不走 agent loop，本插件看不到。
@@ -131,6 +155,7 @@ plugin-reject-policy/
 | "hide + stop" 模式（拒绝结果不进 log） | log 是 replay/调试的唯一来源，藏起来会丢失；"tell + stop" 已足够 |
 | abort agent signal | turn end = aborted；语义混淆；打断并行 tool |
 | hook `approval/request` 改 reason | `serviceAsk` 的 reason 是硬编码模板，不是 approval outcome，无法在 hook 层改 |
+| 用 `error.info.reason` 代替改 `error.message` | 上游 `ToolErrorInfo.reason` 注释明确「model-facing content does not include it」——模型看不到，达不到"改模型可见拒因"的目的 |
 | 文案进 settings | 一次性的文案没有"live rule"语义；运行时改没清晰含义 |
 | 三 mode 设置（default/tell/stop） | tell 一旦文案配置就跟 default 重合，没必要单设 |
 

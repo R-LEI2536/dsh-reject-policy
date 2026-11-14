@@ -1,5 +1,94 @@
 # Changelog
 
+## 0.5.3 (2026-11-14)
+
+DSH `0.2.2-rc.3` alignment. Per the
+[DSH 0.2.2-rc.3 plugin upgrade guide](../deepseek-harness/DSH-0.2.2-rc.3-插件升级指南.md)
+§4.4: no upstream surface this plugin consumes was removed or renamed, but the
+guide's recommended structured rejection identity is adopted — detection no
+longer rests on one upstream sentence alone.
+
+- feat(host): rejection detection is now **structurally first**. `0.2.2-rc.3`
+  writes `error.info = { name: 'ApprovalError', code: 'APPROVAL_REJECTED' }` on
+  the denied tool result (`packages/core/tools/src/error-codes.ts:9-12`,
+  `pipeline.ts:468`), so `isRejectionResult` checks that identity before falling
+  back to the literal `OFFICIAL_REJECTION_TEMPLATE` match. A future upstream
+  rewording no longer silently disables the plugin on rc.3+ hosts; the literal
+  stays as the fallback for `0.2.1-rc.*` / `0.2.2-rc.1` hosts, which do not
+  write `error.info`. Only `APPROVAL_REJECTED` counts: `APPROVAL_CANCELLED`
+  (the user cancelled the approval dialog) and `APPROVAL_UNAVAILABLE` (no
+  approval channel) are neither rewritten nor made to stop the turn.
+- feat(host): the `{ kind: 'block' }` decision now passes the upstream
+  `error.info` through (`PostToolDecision.block.info` is new on rc.3). Without
+  it a rewritten denial lost the structured "this was an approval rejection"
+  identity, because the registry rebuilds the failed result from the block
+  feedback (`pipeline.ts:501-505`). Older hosts ignore the extra field.
+- chore(deps): the 10 `@deepseek-ai/dsh-*` devDependencies are pinned exactly to
+  `0.2.2-rc.3` (was `0.2.2-rc.1`); `pnpm-lock.yaml` regenerated — 162 `rc.3`
+  resolutions, zero `0.2.2-rc.1` left. `@deepseek-ai/cordis` `4.1.0` /
+  `@deepseek-ai/schemastery` `3.19.0` unchanged (same on both sides of the
+  corridor).
+- chore(deps): the dsh peer ranges are **unchanged** at
+  `^0.2.1-rc.1 || ^0.2.2-rc.1`. One artifact now serves `0.2.1-rc.*`,
+  `0.2.2-rc.1` … `rc.3`: the second alternative admits `0.2.2-rc.3` under
+  node-semver's default prerelease rules (same major/minor/patch tuple) and under
+  the boot gate's `includePrerelease` check; the floor still rejects
+  `0.2.0-rc.*`.
+- chore(repo): `lib/` rebuilt against the `0.2.2-rc.3` type surface (host +
+  client bundles and `lib/types/`). This release also carries the two commits
+  that landed after the `v0.5.2` tag (`295514b` docs, `5c0c539` fix(ci)).
+- **wording**: the shipped `cordis.patch.yml` messages are deliberately
+  unchanged — rewording the denial feedback is a separate product decision, not
+  part of this alignment.
+
+Upstream contract check against the `0.2.2-rc.3` source tree:
+
+- `packages/core/tools/src/pipeline.ts:468` — the denial text is still
+  `the user rejected tool "${exec.name}"`, now paired with
+  `info={ name: 'ApprovalError', code: 'APPROVAL_REJECTED' }`.
+  `pipeline.ts:501-505` rebuilds a blocked result as `{ message,
+  ...decision.info }`, which is why the pass-through above keeps the identity.
+- `packages/core/tools/src/contracts.ts:271-276,283,377,389,417` — new
+  `ToolErrorInfo { name, code, reason? }` plus optional `info` on
+  `ToolFailure`, `PreToolDecision.deny` and `PostToolDecision.block`. `reason`
+  is durable-only: its comment says model-facing content does not include it, so
+  this plugin must keep rewriting `message` — the structured channel does not
+  reach the model.
+- `packages/interaction/user-approval/src/index.ts:152-160` — the upstream
+  `user-approval` Config still exposes only `policy: 'ask' | 'never'`; there is
+  no upstream message override or stop-on-reject option, so both behaviors of
+  this plugin remain unimplemented upstream.
+- `packages/core/agent/src/runtime-types.ts:140` — `agent/pre-step` still
+  accepts `{ kind: 'reject' }`.
+- `packages/settings/settings/src/index.ts:266` — `ctx.settings.configure({
+  auto }, owner)` is unchanged.
+- Client contracts: `plugins.row.config` / `ConfigPageForm` /
+  `ConfigFormSnapshot` / `ConfigForms.whileServed` / `ctx.slots.inject` and
+  `register` are unchanged. The rc.3 client additions (`SlotKind 'hoc'`,
+  `openSettings(sectionId?)`, `ProcessActivity.context`, the css-anchored `Menu`
+  primitives) are additive and not consumed here — the card still passes only
+  the inline `anchor` prop, which the new `Menu` keeps.
+- Guide §2 Step 4 contract scan (all 8 pattern groups over `src` and `docs`):
+  0 hits.
+- Packaging note: `@deepseek-ai/dsh-tools@0.2.2-rc.3`'s `package.json#files`
+  now includes `src`, so the drift guard's first candidate (`src/pipeline.ts`)
+  fires for a normal install; through rc.1 the tarball shipped only `lib/` and
+  `locale/`. The layout-independent fallback is unchanged.
+
+Verified on `0.2.2-rc.3` devDeps (Node 24.18.0, pnpm 11.28.5): `ci:drift`
+(literal found in the installed `dsh-tools/src/pipeline.ts`), host `typecheck`,
+client `typecheck`, `test` (24/24 — case 8 covers the info hit, the info
+pass-through, `APPROVAL_CANCELLED` not counting, and the drifted-message
+fallback), `build`. Boot-gate real computation with the `0.2.2-rc.3` tree's own
+`app-boot` (`packages/boot/app-boot/lib/index.js`): PASS on `0.2.2-rc.3`,
+`0.2.2-rc.1` and `0.2.1-rc.5`; REJECT on `0.2.0-rc.5`; the control group (one
+peer pinned to exact `0.2.2-rc.1`) is REJECT — the check is not vacuous.
+
+Still to verify live once the host moves to `0.2.2-rc.3`: a cold start without
+`dsh: disabling profile plugin row`, the Plugins-page Configure card, a volatile
+save, and one real rejection whose persisted result carries
+`error.info.code === 'APPROVAL_REJECTED'`.
+
 ## 0.5.2 (2026-11-05)
 
 DSH `0.2.2-rc.1` alignment. Per the
