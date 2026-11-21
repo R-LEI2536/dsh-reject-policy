@@ -128,12 +128,12 @@ plugin-reject-policy/
 ├── README.md                  ← 用户视角：模式表 + 配置 + 协同关系 + 已知限制
 ├── cordis.patch.yml           ← 发布 patch（dsh.bundle.patch 指向此）
 ├── src/index.ts               ← 函数插件（name / Config / apply，无 default export）
-└── tests/reject-policy-check.mts  ← 25 条断言（8 组）全过
+└── tests/reject-policy-check.mts  ← 27 条断言（8 组）全过
 ```
 
 ## 8. 验证状态
 
-> 当前验证状态（0.5.3，DSH `0.2.2-rc.3` devDeps）见 `CHANGELOG.md` 的 0.5.3
+> 当前验证状态（0.6.0，DSH `0.2.2-rc.3` devDeps）见 `CHANGELOG.md` 的 0.6.0
 > 节；下表混有 0.3.0（0.1.7-rc.2 对齐）开发期的记录，测试条数已按当前值更新。
 > 0.3.0 的真机消费侧验证见
 > [UPGRADE-0.1.7-LESSONS.md](./UPGRADE-0.1.7-LESSONS.md) §2 验证矩阵。

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 (2026-11-21)
 
 Detection is now info-only: the literal-text fallback is removed, and the
 peer floor is narrowed to the detection floor — hosts whose approval denial
