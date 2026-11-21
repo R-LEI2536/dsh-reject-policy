@@ -74,17 +74,6 @@ export interface RuntimeConfig {
  */
 export declare const Config: z<RuntimeConfig>;
 /**
- * 官方审批拒绝写出的拒因模板。0.2.2-rc.3 起仍位于 execution pipeline
- * （`packages/core/tools/src/pipeline.ts:468`，发布产物 `lib/pipeline.js`）；
- * 旧训练在 `index.ts:1755` / `1763`。行号仅供定位，匹配靠字面前缀。
- *
- * 0.2.2-rc.3 起本模板只作**兜底**：拒绝结果带上结构化身份
- * `error.info = { name: 'ApprovalError', code: 'APPROVAL_REJECTED' }`
- * （`packages/core/tools/src/error-codes.ts:9-12`），检测优先用它，见
- * {@link isRejectionResult}。
- */
-export declare const OFFICIAL_REJECTION_TEMPLATE = "the user rejected tool \"{name}\"";
-/**
  * 解析一个 tool 的最终拒因：messages[name] → defaultMessage（带占位替换）→ undefined。
  * @param cfg - 已 normalize 的 cordis.yml 配置（messages / defaultMessage）。
  * @param toolName - 被拒的 tool 名。
