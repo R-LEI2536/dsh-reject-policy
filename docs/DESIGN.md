@@ -8,10 +8,11 @@
 
 | 用户原始需求 | 落地方式 |
 |---|---|
-| 设置里开关 reject 行为 | 插件 Config 的 volatile 字段（entry id `reject-policy`）：Plugins 页 row Configure 或 `ctx.settings.update` 编辑 `mode` + `stopOnRejectTools` |
+| 设置里开关 reject 行为 | 插件 Config 的 volatile 字段（entry id `reject-policy`）：composer dock 常驻开关、Plugins 页 row Configure、或 `ctx.settings.update` 编辑 `mode` + `stopOnRejectTools` |
 | 拒绝后停当前 turn | `mode='stop'` + `agent/pre-step` 返回 `kind: 'reject'`，turn 以 `kind: 'blocked'` 关闭 |
 | 停哪些 tool 可配 | `stopOnRejectTools: string[]`，空数组 = 全部 |
 | reject 文案可配 | `messages[name]` 精确覆盖；`defaultMessage` 模板兜底（`{tool}` / `{name}`） |
+| mode 开关别埋在设置里（2026-11-21 用户要求） | 客户端 `RejectPolicyDock`：注册进 `conversation.input.dock`（composer 上方 dock 条，与 Todo/Goal/Queue 同族），显示实时 mode 并点击原地切换 |
 
 ## 2. mode 与文案的 2×2 表
 
@@ -112,26 +113,64 @@ cordis.yml patch（bundle 继承层 + profile user 层，reload/volatile-update 
 ```
 
 DSH 0.1.7 起：`mode` / `stopOnRejectTools` 声明为 Config schema 的
-`.volatile()` 字段，运行时编辑（Plugins 页 row Configure 或
-`ctx.settings.update('reject-policy', {...})`）写入 `<profile>/cordis.patch.yml`；
+`.volatile()` 字段，运行时编辑（composer dock 开关、Plugins 页 row Configure
+或 `ctx.settings.update('reject-policy', {...})`）写入 `<profile>/cordis.patch.yml`；
 Loader `_commitVolatile` 原地更新 volatile 引用（不重挂），本插件两个
 listener 事件时读 `config.mode.get()` / `config.stopOnRejectTools.get()`，
 无需订阅 `loader/volatile-update`。
 
 **为什么文案不进 volatile**：拒绝文本是一次性交付，不是 live rule。运行时改"下一次拒绝用什么文本"语义模糊（沿用旧取舍）。
 
-## 7. 文件清单
+## 7. composer dock 常驻开关（客户端第二界面）
+
+2026-11-21 用户要求：mode 开关不能埋在设置里——藏在 Plugins → Configure → Save
+两层导航后面，会话中途实际不可达。落地为 `RejectPolicyDock`
+（`src/client/RejectPolicyDock.tsx`），注册进 `conversation.input.dock`
+（Todo 0 / Goal 10 / Queue 20 同族；本插件 order 15，位于 Goal 与 Queue 之间——Queue 必须保持最末条目，它的负 margin 贴底接缝不容后来者），
+显示实时 `mode`，单击原地切换 `stop ↔ default`，无导航无 Save。
+
+关键取舍：
+
+- **单一数据源**：dock 不自建订阅，绑 `ctx.configForms.get('reject-policy')`
+  （per-namespace 缓存 → 与 Plugins 页卡片是同一个 form 实例，见
+  `src/client/index.ts` 注释）。读写同一条 describe mirror、同一条 Host 写
+  队列，两个界面不可能分歧；卡片的 `ConfigPageForm` 只是页面注入的包装，
+  底层同源。
+- **原地切换，无 staged Save**：`mode` 是 per-task 运行时规则，不是安装配置；
+  staged 语义会把一键开关再次变远（见 §11 否决的 staged 方案）。写失败不
+  假装成功：inline `role="alert"` 提示 + 可重试。
+- **回 base 即 unset**：点回 composition `base` 时发 `unset('mode')` 清掉
+  user override，不写冗余覆盖——与卡片 Save 的同一规则。
+- **可见性门控**：Host 不服务 namespace（`configForms.whileServed`）则整条
+  不注册；describe mirror 首个 section 未到（`status !== 'ready'`）渲染
+  null。liveshare 非 owner：`settings/describe` 本身就是 owner-only
+  （`endpoint-classification.ts:111`），describe 失败 → mirror 无 view →
+  `whileServed` 永不注册——dock 与卡片一样**整条不存在**；「绕开
+  `pluginManager/listBundles` 门」只是绕开了 Plugins 页那道门，没绕开
+  settings 这道。`writable=false` 分支（可见但 inert + readOnly tooltip）
+  是给只读 settings provider 预留的防御路径，当前上游 provider 恒
+  `writable=true`。
+- **粒度没变**：dock 只是把入口搬进会话；写仍是 profile patch
+  （`<profile>/cordis.patch.yml`），profile 级共享，不是 per-session。
+
+## 8. 文件清单
 
 ```
 plugin-reject-policy/
 ├── DESIGN.md                  ← 本文档
-├── README.md                  ← 用户视角：模式表 + 配置 + 协同关系 + 已知限制
+├── README.md                  ← 用户视角：模式表 + 三种编辑入口 + 协同关系 + 已知限制
 ├── cordis.patch.yml           ← 发布 patch（dsh.bundle.patch 指向此）
-├── src/index.ts               ← 函数插件（name / Config / apply，无 default export）
+├── src/index.ts               ← host 半（name / Config / apply，无 default export）
+├── src/shared.ts              ← 纯类型/常量面（host/client 共享，零运行时 import）
+├── src/client/index.ts        ← client 半：注册 Plugins 页卡片 + composer dock
+├── src/client/RejectPolicyCard.tsx / .module.css   ← Plugins 页配置卡片
+├── src/client/RejectPolicyDock.tsx / .module.css  ← composer dock 常驻开关
+├── src/client/locales.ts      ← en/zh 文案（卡片 + dock 同 namespace）
+├── tsdown.config.ts           ← host/client 两个 bundle + CSS Modules inline
 └── tests/reject-policy-check.mts  ← 27 条断言（8 组）全过
 ```
 
-## 8. 验证状态
+## 9. 验证状态
 
 > 当前验证状态（0.6.0，DSH `0.2.2-rc.3` devDeps）见 `CHANGELOG.md` 的 0.6.0
 > 节；下表混有 0.3.0（0.1.7-rc.2 对齐）开发期的记录，测试条数已按当前值更新。
@@ -145,15 +184,18 @@ plugin-reject-policy/
 | `pnpm run ci:drift` | ✅ 断言双身份契约：`ApprovalError` 名 + `APPROVAL_REJECTED` 码（0.5.3 曾为文案前缀 + code） |
 | `scratch-plugin/tests/smoke-apply.mts`、`gate-check.mts` | ✅ 0.3.0 开发期通过（已不在本仓库） |
 | `pnpm --filter @deepseek-ai/dsh-agent-loop test` | — 不再适用（本仓库不是 monorepo 子包） |
+| composer dock 分支门禁（typecheck / typecheck:client / ci:drift / 27 断言 / worktree 本地 build + bundle 纯度） | ✅ 2026-11-22 分支收尾快照全过；最终 `lib/` 由 main checkout 重建后单独提交（CSS-module hash 绑定源文件绝对路径） |
 
-## 9. 已知限制 / 后续要看的点
+## 10. 已知限制 / 后续要看的点
 
 1. **身份字符串与上游耦合**：检测唯一信号是上游持久化的 `ApprovalError` / `APPROVAL_REJECTED`（本地复刻、不 import），上游改任一字符串检测即静默失效——`ci:drift`（挂在 `test` / `build`）是唯一守护。老宿主（`0.2.1-rc.*` / `0.2.2-rc.1`–rc.2）审批拒绝不带 `info`，明确不支持：peer 收窄到 `^0.2.2-rc.3`，boot 门禁直接拒绝安装。
 2. **文案不进 settings**：和用户对齐过的取舍，不是 bug。
 3. **plugin 路径不在 `packages/`**：因为是部署侧 composition，不属于官方包。
 4. **不在 agent loop 之外的 bash 工具调用上生效**：harness 自己的 bash 工具不走 agent loop，本插件看不到。
+5. **dock 写的仍是 profile patch，不是 per-session**：入口搬进了会话，粒度没变——mode 是 profile 级设置，多会话/多窗口共享。
+6. **liveshare 非 owner 看不到 dock（与卡片一致）**：`settings/describe` 是 owner-only（`endpoint-classification.ts:111`），非 owner 的 describe 失败 → `whileServed` 永不注册，整条不存在；`writable=false` 的「可见但 inert」是只读 provider 的预留防御路径（当前上游恒 `writable=true`），不是已触发的行为。
 
-## 10. 替代方案（被否决的）
+## 11. 替代方案（被否决的）
 
 | 方案 | 否决原因 |
 |---|---|
@@ -165,8 +207,12 @@ plugin-reject-policy/
 | 用 `error.info.reason` 代替改 `error.message` | 上游 `ToolErrorInfo.reason` 注释明确「model-facing content does not include it」——模型看不到，达不到"改模型可见拒因"的目的 |
 | 文案进 settings | 一次性的文案没有"live rule"语义；运行时改没清晰含义 |
 | 三 mode 设置（default/tell/stop） | tell 一旦文案配置就跟 default 重合，没必要单设 |
+| mode 入口只留 Plugins 页卡片 | 开关埋在 Plugins → Configure → Save 两层导航后面，会话中途实际不可达——2026-11-21 用户否决，dock 的立项原因 |
+| dock 内做 staged Save/Discard | mode 是 per-task 运行时规则不是安装配置；staged 把一键切换变三步，把开关再次变远 |
+| dock 里放 select 下拉 | 只有两档，下拉多一次瞄准与展开；pill + 单击更低摩擦 |
+| dock 自建 settings 订阅绕过 configForms | 会造出第二条读写路径，与卡片可能分歧；必须共享同一 `ConfigForm`（`configForms.get` per-namespace 缓存 → 同实例） |
 
-## 11. 后续对齐清单（恢复 shell 后）
+## 12. 后续对齐清单（恢复 shell 后）
 
 - 跑 `pnpm run typecheck` 验证全仓库类型
 - 跑 `pnpm --filter @deepseek-ai/dsh-agent-loop test` 验证 pre-step reject 契约未变

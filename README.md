@@ -76,18 +76,25 @@ Resolution order: `messages[toolName]` → `defaultMessage` (template expansion)
 restarting DSH. The edit is written to the profile patch (`<profile>/cordis.patch.yml`) and the running
 plugin picks the new value up on the next rejection (the Loader updates the volatile references in place).
 
-Two ways to edit:
+Three ways to edit:
 
-1. **Plugins page** — open Plugins > `dsh-reject-policy` > **Configure** on the `reject-policy` row (this
+1. **Composer dock switch** — a persistent strip above the chat composer (`conversation.input.dock`,
+   the row that also carries the Todo panel and the GoalBar) shows the live `mode` and toggles it in
+   place: one click flips `stop` ↔ `default`, no page navigation, no Save. The strip renders nothing
+   while the Host does not serve the `reject-policy` namespace; a read-only settings document (not the
+   shipped one) keeps the switch visibly inert with an explanatory tooltip.
+2. **Plugins page** — open Plugins > `dsh-reject-policy` > **Configure** on the `reject-policy` row (this
    registers the row's configuration page through the `plugins.row.config` slot). The page exposes the
    `mode` dropdown with Save / Discard.
-2. **Host API** — mirror of the settings service:
+3. **Host API** — mirror of the settings service:
 
    ```ts
    ctx.settings.update(REJECT_POLICY_SETTINGS_NAMESPACE, { mode: 'default' })
    ```
 
-Both paths validate through the plugin's Config schema; an invalid write is refused and the patch is not modified.
+All three paths read and write the same shared settings form, so the dock and the Plugins-page card can
+never disagree; every write validates through the plugin's Config schema, and an invalid write is
+refused without touching the patch.
 
 ## Model Experience
 
@@ -117,9 +124,9 @@ the user.
 - **Rejection detection** relies solely on the structured identity `error.info = { name: 'ApprovalError', code: 'APPROVAL_REJECTED' }` that DSH `0.2.2-rc.3`+ records on the denied tool result (`packages/core/tools/src/error-codes.ts:9-12`); only `APPROVAL_REJECTED` counts, not `APPROVAL_CANCELLED` / `APPROVAL_UNAVAILABLE`. Hosts whose approval denial carries no `error.info` (`0.2.1-rc.*` / `0.2.2-rc.1`–`rc.2`) are **not supported** — the narrowed `^0.2.2-rc.3` peers make the boot compatibility gate reject the install there; the old literal-text fallback (`OFFICIAL_REJECTION_TEMPLATE`) was removed because the human-readable message is not a contract. `pnpm run ci:drift` (wired into `pnpm test` / `pnpm build`) scans the installed `@deepseek-ai/dsh-tools` package (`src/error-codes.ts` first, then published `lib/*.js` chunks as a layout fallback) for both identity strings — `ApprovalError` and `APPROVAL_REJECTED` — and exits 1 if either has drifted; run `pnpm test` or `pnpm build` after upgrading DSH to catch this locally.
 - **The rewrite still targets `error.message`.** Upstream's `ToolErrorInfo.reason` is durable-only — its comment states that model-facing content does not include it — so changing what the model reads still requires rewriting the message. The plugin passes the original `error.info` through on its `block` decision, so downstream consumers keep seeing the approval identity after a rewrite.
 - **Coverage** is limited to tool calls that go through the agent loop. Harness-internal bash and other out-of-loop tool calls are not observable here.
-- **`mode` defaults to `'stop'`**, which closes the turn on the very first rejection. Consumers that want "rewrite only, never halt" should set `mode: 'default'` at install time or toggle it through the Plugins page.
+- **`mode` defaults to `'stop'`**, which closes the turn on the very first rejection. Consumers that want "rewrite only, never halt" should set `mode: 'default'` at install time or flip it with the composer dock switch (or the Plugins page).
 - **The card exposes only `mode`.** `stopOnRejectTools` is runtime-editable through `ctx.settings.update` but has no UI control on the row page yet.
-- **Plugins page availability** (host behavior on `0.2.2-rc.1`+): the page is gated by `remoteAccess.whenAccess('pluginManager/listBundles')`, so the row's Configure page (`plugins.row.config`) only mounts for the owner session — that endpoint is `owner-only` (`packages/experimental/liveshare/src/endpoint-classification.ts:144` on `0.2.2-rc.1`, `:147` on `0.2.2-rc.3`), and any non-owner Peer (restricted or unrestricted) lacks it. In that case message rewriting still works — only the settings card is absent. Runtime edits through `ctx.settings.update` are unaffected.
+- **Plugins page availability** (host behavior on `0.2.2-rc.1`+): the page is gated by `remoteAccess.whenAccess('pluginManager/listBundles')`, so the row's Configure page (`plugins.row.config`) only mounts for the owner session — that endpoint is `owner-only` (`packages/experimental/liveshare/src/endpoint-classification.ts:144` on `0.2.2-rc.1`, `:147` on `0.2.2-rc.3`), and any non-owner Peer (restricted or unrestricted) lacks it. In that case message rewriting still works — only the settings card is absent. The composer dock switch is **not** gated by that endpoint, but it is gated on `settings/describe` — which liveshare also classifies `owner-only` — so a non-owner Peer does not see the strip either; the switch's `writable === false` branch is a defensive path for read-only settings providers (the shipped one is always writable). Runtime edits through `ctx.settings.update` are unaffected.
 
 ## Reference
 

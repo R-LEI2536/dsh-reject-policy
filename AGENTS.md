@@ -6,7 +6,7 @@ rejected, and optionally halts the turn after the rejection.
 ## Project
 
 - Standalone DSH plugin package (version `0.6.0`, `name = dsh-reject-policy`).
-- Targets DSH `0.2.2-rc.3`+ (`^0.2.2-rc.3` peer ranges; the 10 consumed
+- Targets DSH `0.2.2-rc.3`+ (`^0.2.2-rc.3` peer ranges; the 11 consumed
   `@deepseek-ai/dsh-*` packages are also pinned as exact `devDependencies`
   to the latest verified rc (`0.2.2-rc.3`) for typecheck/build). The peer
   floor is the **detection floor**: approval denials carry `error.info` only
@@ -24,9 +24,11 @@ rejected, and optionally halts the turn after the rejection.
     on `tools/post-execute` and returns `{ kind: 'reject' }` on `agent/pre-step`
     when `mode === 'stop'`. `mode` / `stopOnRejectTools` are volatile Config
     fields; `messages` / `defaultMessage` stay patch-only.
-  - **Client half** — browser/Cordis client plugin (`src/client/`); renders
-    the reject-policy configuration page on the Plugins page via the
-    `plugins.row.config` slot (key `dsh-reject-policy#reject-policy`).
+  - **Client half** — browser/Cordis client plugin (`src/client/`); two
+    surfaces over the one `reject-policy` namespace: the configuration page
+    on the Plugins page (`plugins.row.config` slot, key
+    `dsh-reject-policy#reject-policy`) and the composer-dock `mode` switch
+    (`conversation.input.dock`, id `reject-policy`, order 15).
 - The plugin id, the cordis patch id, and the settings namespace are all the
   same string: `reject-policy` (see `REJECT_POLICY_SETTINGS_NAMESPACE` in
   `src/shared.ts`). The `plugins.row.config` key joins the package name with
@@ -130,12 +132,16 @@ Run from the repo root with `pnpm`.
   runtime deps here. Re-exports the settings namespace constant plus the
   package name and the `plugins.row.config` key, so host and client pick the
   same ids by construction.
-- `src/client/index.ts` — registers the row configuration page while the Host
-  serves the `reject-policy` namespace: `ctx.configForms.whileServed([...],
-  () => ctx.slots.inject('plugins.row.config', () => ctx.slots.register({...},
-  RejectPolicyCard)))`. All `@deepseek-ai/dsh-client-*` imports are
-  `import type {}` for service/slot-map augmentation only — value imports
-  would break the bundle.
+- `src/client/index.ts` — registers both client surfaces while the Host
+  serves the `reject-policy` namespace (each registration wrapped in
+  `ctx.configForms.whileServed([...])`): the row configuration page
+  (`ctx.slots.inject('plugins.row.config', ...)` → `RejectPolicyCard`) and
+  the composer-dock switch (`ctx.slots.inject('conversation.input.dock',
+  () => ctx.slots.register({ ..., order: 15, inject: () => ({ form:
+  ctx.configForms.get(...) }) }, RejectPolicyDock))` — the dock binds its
+  own provider-owned shared form instead of a page-supplied one). All
+  `@deepseek-ai/dsh-client-*` imports are `import type {}` for
+  service/slot-map augmentation only — value imports would break the bundle.
 - `src/client/RejectPolicyCard.tsx` — renders inside the Plugins page's row
   detail view. Props: `PropsRuntime<'plugins.row.config'> & PropsLocale<...>`;
   `view === 'summary'` yields the one-liner, `view === 'page'` renders the
@@ -145,11 +151,34 @@ Run from the repo root with `pnpm`.
   When the staged edit equals the cordis `base`, sends `op: 'unset'` instead
   of writing a redundant override. No self-subscription: the page re-renders
   on describe-mirror updates.
-- `src/client/locales.ts` — `en` + `zh` dictionaries for the card. Add new
-  keys to both objects.
+- `src/client/locales.ts` — `en` + `zh` dictionaries for the card and the
+  composer dock (`dock.*` keys). Add new keys to both objects.
 - `src/client/RejectPolicyCard.module.css` — CSS Modules; the
   `dsh-css-modules-inline` plugin in `tsdown.config.ts` hashes classes via
   lightningcss and inlines the stylesheet at factory execution.
+- `src/client/RejectPolicyDock.tsx` — the persistent `mode` switch above the
+  composer (`conversation.input.dock`, order 15 between the GoalBar and the
+  Queue dock — the Queue dock must stay the LAST strip entry, its negative
+  bottom margin tucks it under the composer card). Binds the same shared
+  form as the card (`ctx.configForms.get` caches per namespace → one
+  instance) and reads it via `useSyncExternalStore` wrapped in
+  `useCallback`-bound callbacks — the form's `subscribe`/`getSnapshot` are
+  prototype methods reading `this`, bare references crash on mount (see
+  the pitfall below); renders null while `snapshot.status !== 'ready'`.
+  Toggles in place — no staged Save, because `mode` is a per-task runtime
+  rule, not install configuration; reverting to the composition `base`
+  sends `unset('mode')` (same rule as the card's Save). `writable ===
+  false` (a read-only settings provider; the shipped one always reports
+  writable) keeps the switch visibly inert — dimmed via `aria-disabled`,
+  never a real `disabled` attribute, so the `readOnly` tooltip stays
+  hover/focus reachable; a pending write keeps focus (`aria-busy`, no
+  `disabled`) and shows the optimistic target until the mirror accepts
+  it; a failed write shows an inline `role="alert"` hint and stays
+  retryable.
+- `src/client/RejectPolicyDock.module.css` — mirrors the GoalBar / Todo /
+  Queue dock-card family (36px bar, `--dsw-*` theme tokens only, width
+  `calc(100% - 2 × var(--dsh-composer-side-clearance) - 4 ×
+  var(--dsh-composer-dock-inset))`).
 - `cordis.patch.yml` — published patch referenced from
   `package.json#dsh.bundle.patch`. Carries default install-time config:
   `stopOnRejectTools: []`, a `bash` message override, and a `defaultMessage`
@@ -302,7 +331,13 @@ rejected inside `engines.dsh`. Consequences that bite this repo:
   `0.2.2-rc.1`, `:147` on `0.2.2-rc.3`), so a
   non-owner Peer — restricted or not — never mounts `plugins.row.config`; the
   card's absence there is expected host behavior, not a registration bug.
-  Verify the card on an owner session.
+  Verify the card on an owner session. The composer dock is **not** gated by
+  that endpoint, but it is gated on `settings/describe`, which liveshare
+  also classifies `owner-only` (`endpoint-classification.ts:111`) — a
+  non-owner Peer never sees the strip either, because the describe mirror
+  never gets a view and `whileServed` never fires. `snapshot.writable ===
+  false` is a defensive read-only path; the shipped settings provider
+  always reports `writable: true`.
 - **cordis 4.1.0 splits raw vs resolved config.** `fiber.config` is the raw
   patch input now; the schema-resolved Config (with the volatile references)
   lives on `fiber.effectiveConfig`, which is what the Loader's `_commitVolatile`
@@ -315,11 +350,27 @@ rejected inside `engines.dsh`. Consequences that bite this repo:
   module table does not answer — the plugin then fails to load with
   "missed the module table". Cross from the client to the host tree only
   via `src/shared.ts`, and only via `import type` for slot-map augmentation.
+- **`package.json#dsh.client.inject` and tsdown's `EXTERNAL` must stay in
+  sync.** The loader answers a bare specifier only when the plugin's boot
+  row declares it (`dsh.client.inject`), which is exactly what `tsdown` must
+  leave external. `@deepseek-ai/dsh-client-ui-conversation` is consumed
+  **type-only** and is deliberately absent from both lists: a value import
+  would inline the whole conversation package into `lib/client.js`, and
+  adding it to `EXTERNAL` without a matching `dsh.client.inject` entry
+  would fail at load with "missed the module table".
 - **CSS Modules go through `tsdown`, not `tsc`.** The
   `tsconfig.client.json` `outDir` would mirror `src/` paths under
   `lib/types/client/...`, a layout rolldown cannot read. `tsdown.config.ts`
   bundles `src/client/index.ts` directly; `tsconfig.client.json` stays
   `noEmit`.
+- **Never pass unbound prototype methods to `useSyncExternalStore`.**
+  `ConfigForm`'s `subscribe` / `getSnapshot` are class prototype methods
+  reading `this` (the form's snapshot store); passing the bare references
+  crashes on mount with a `TypeError`, which the slot error boundary
+  swallows into an empty `<div data-slot-error>` — the entry just
+  disappears with only a console error, and typecheck/build/host tests
+  never see it. Wrap them in `useCallback`-bound callbacks (see
+  `src/client/RejectPolicyDock.tsx`).
 - **`tsc -p tsconfig.json` emits into `lib/types/`.** `tsdown` then bundles
   from `lib/types/index.js`. Do not delete `lib/types/` between the two
   steps; do not add a `clean` step to `tsdown` (it is `clean: false`
