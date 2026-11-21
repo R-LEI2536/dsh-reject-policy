@@ -1,40 +1,40 @@
 /**
  * CI drift guard.
  *
- * Reads the installed @deepseek-ai/dsh-tools package and asserts that the
- * rejection-text prefix still appears in the approval-denial path. Fails
- * (exit 1) if upstream drifted. A second assertion covers the structured
- * `ApprovalError` / `APPROVAL_REJECTED` identity that 0.2.2-rc.3+ records and
- * the plugin prefers — it is a persisted contract duplicated in the plugin, so
- * the guard is what keeps that duplication honest.
+ * Reads the installed @deepseek-ai/dsh-tools package and asserts that the two
+ * structured identity strings the plugin's detection depends on are still
+ * there: the error name `ApprovalError` and the code `APPROVAL_REJECTED`
+ * (`packages/core/tools/src/error-codes.ts` on 0.2.2-rc.3+). The plugin
+ * duplicates these persisted-contract values locally because the upstream
+ * entry does not re-export them; this guard is what keeps that duplication
+ * honest. Fails (exit 1) if either has drifted.
  *
- * Note: the published source uses template-literal interpolation
- * (`the user rejected tool "${exec.name}"`), not a `{name}` placeholder.
- * The plugin's runtime check substitutes `{name}` for the actual tool
- * name; both forms reduce to the same `error.message`. We assert on the
- * stable human-readable prefix, which is what upstream would change if
- * they ever rewrote the message.
+ * Detection matches the recorded identity only — the human-readable denial
+ * text is no longer a runtime signal (the literal-text fallback was removed
+ * when old-host support was dropped), so the guard no longer asserts on the
+ * message text either.
  *
- * Location history (the literal moves between releases; the assertion only
- * depends on it existing somewhere in the shipped package):
- *   - <= 0.2.1-rc.*: `src/index.ts` in an unpacked tree, `lib/index.js` in
- *     the published bundle.
- *   - >= 0.2.2-rc.1: split into the execution pipeline — `src/pipeline.ts`,
- *     published as `lib/pipeline.js` (the `@deepseek-ai/dsh-tools/pipeline`
- *     sub-entry). `lib/index.js` no longer carries the string.
+ * The identity values live in `src/error-codes.ts` in an unpacked tree and are
+ * inlined into some published `lib/*.js` chunk after bundling. Candidates in
+ * order: `src/error-codes.ts` (0.2.2-rc.3+ unpacked tree, and every published
+ * tarball from 0.2.2-rc.3 — its `package.json#files` now ships `src`),
+ * `src/pipeline.ts` (0.2.2-rc.1+ unpacked tree; rc.3 mentions the name in a
+ * doc comment), `src/index.ts` (older unpacked tree), `lib/pipeline.js`
+ * (0.2.2-rc.1+ published `./pipeline` sub-entry), `lib/index.js` (older
+ * published bundle); then a fallback scan over every top-level `lib/*.js`
+ * chunk.
  *
  * Through 0.2.2-rc.1 the published tarball shipped no `src/` (`package.json#files`
  * listed only `lib/` and `locale/`, although `exports` still maps `./src/*`), so
- * the `src/` candidates fired only in a monorepo checkout. From 0.2.2-rc.3
- * `files` also ships `src`, so `src/pipeline.ts` now fires for a normal install
- * too — the layout-independent guard below still covers older tarballs.
+ * the `src/` candidates fired only in a monorepo checkout; the lib candidates
+ * and the fallback scan covered tarballs. A guard failure is not proof of
+ * drift — read the candidate list first.
  *
  * The fallback scan over every TOP-LEVEL `lib/*.js` chunk keeps the guard
- * working if a future release moves the literal to another entry. It is
+ * working if a future release moves the constants to another entry. It is
  * deliberately not recursive: `lib/types/**` holds the unbundled `tsc` emit,
- * which can contain the literal in code the bundler no longer reaches, so
- * scanning it could mask a real drift. A guard failure is not proof of drift —
- * read the candidate list first.
+ * which can contain the strings in code the bundler no longer reaches, so
+ * scanning it could mask a real drift.
  */
 import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -42,14 +42,11 @@ import { dirname } from 'node:path'
 
 const require = createRequire(import.meta.url)
 
-const PREFIX = 'the user rejected tool "'
+/** Error name the registry records on approval denials — persisted contract, duplicated in `src/index.ts`. */
+const APPROVAL_ERROR_NAME = 'ApprovalError'
 
-/**
- * The structured identity the plugin prefers on 0.2.2-rc.3+. It is a persisted
- * contract duplicated in `src/index.ts` because the entry does not re-export it;
- * this assertion is what keeps that duplication honest.
- */
-const APPROVAL_CODE = 'APPROVAL_REJECTED'
+/** Approval code for a call the user rejected — persisted contract, duplicated in `src/index.ts`. */
+const APPROVAL_REJECTED_CODE = 'APPROVAL_REJECTED'
 
 /**
  * Package root of the installed `@deepseek-ai/dsh-tools`. Resolve
@@ -64,10 +61,11 @@ try {
   process.exit(1)
 }
 const candidates = [
-  `${root}/src/pipeline.ts`, // 0.2.2-rc.1+ unpacked tree; tarballs from 0.2.2-rc.3
-  `${root}/src/index.ts`,    // <= 0.2.1-rc.* unpacked tree
-  `${root}/lib/pipeline.js`, // 0.2.2-rc.1+ published `./pipeline` sub-entry
-  `${root}/lib/index.js`,    // <= 0.2.1-rc.* published bundle
+  `${root}/src/error-codes.ts`, // 0.2.2-rc.3+ unpacked tree; tarballs from 0.2.2-rc.3
+  `${root}/src/pipeline.ts`,    // 0.2.2-rc.1+ unpacked tree (name in a doc comment on rc.3)
+  `${root}/src/index.ts`,       // <= 0.2.1-rc.* unpacked tree
+  `${root}/lib/pipeline.js`,    // 0.2.2-rc.1+ published `./pipeline` sub-entry
+  `${root}/lib/index.js`,       // <= 0.2.1-rc.* published bundle
 ]
 const libDir = `${root}/lib`
 
@@ -108,12 +106,12 @@ const requireNeedle = (label: string, needle: string, detail: string): void => {
 }
 
 requireNeedle(
-  'rejection text',
-  PREFIX,
-  'upstream likely drifted; update OFFICIAL_REJECTION_TEMPLATE in src/index.ts',
+  'approval error name',
+  APPROVAL_ERROR_NAME,
+  'info-only detection would never fire; sync APPROVAL_ERROR_NAME in src/index.ts',
 )
 requireNeedle(
-  'structured approval identity',
-  APPROVAL_CODE,
-  'info-first detection would never fire; the literal match would be the only signal',
+  'approval rejection code',
+  APPROVAL_REJECTED_CODE,
+  'info-only detection would never fire; sync APPROVAL_REJECTED in src/index.ts',
 )

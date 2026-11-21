@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased
+
+Detection is now info-only: the literal-text fallback is removed and hosts
+whose approval denial carries no `error.info` are deliberately unsupported.
+
+- **breaking(host)**: `isRejectionResult` matches only the persisted
+  structured identity `error.info = { name: 'ApprovalError', code:
+  'APPROVAL_REJECTED' }`. Hosts whose approval denial carries no `error.info`
+  (`0.2.1-rc.*` / `0.2.2-rc.1`–`rc.2`) are **not supported**: the plugin
+  installs there (peer ranges unchanged) but never triggers. The removed
+  literal `OFFICIAL_REJECTION_TEMPLATE` match was the only signal those hosts
+  could produce — but it guarded a non-contract (the human-readable message)
+  and was stricter than what `ci:drift` actually asserts (the message prefix):
+  an upstream rewording that only appended to the message would leave the
+  guard green while the fallback died silently. Dropping the non-contract
+  signal is cleaner than patching it.
+- chore(guard): `pnpm ci:drift` now asserts the two identity strings the
+  plugin duplicates — `ApprovalError` (name) and `APPROVAL_REJECTED` (code) —
+  instead of the message prefix + code; candidates gain `src/error-codes.ts`
+  (where 0.2.2-rc.3 defines the values). The message-text assertion is gone:
+  the text is no longer a runtime signal.
+- chore(host): the one-shot startup warning now states info-only detection and
+  the unsupported old-host floor.
+- test: fixture rejection results carry the structured identity by default
+  (0.2.2-rc.3+ shape); `info: null` simulates an old host. New case 8e: an
+  info-less result with the exact official message no longer triggers
+  (behavior change vs 0.5.x). 27 assertions across 8 cases.
+- docs: `DESIGN.md` §4, README detection/installation paragraphs, `AGENTS.md`
+  updated to info-only; the prefix-match alternative is recorded as rejected
+  in DESIGN §10.
+
 ## 0.5.3 (2026-11-14)
 
 DSH `0.2.2-rc.3` alignment. Per the

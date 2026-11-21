@@ -28,7 +28,7 @@
 
 ```
 [serviceAsk] → deny: message="the user rejected tool "X""
-                     info={ name: 'ApprovalError', code: 'APPROVAL_REJECTED' }   ← 0.2.2-rc.3+；旧宿主只有 message
+                     info={ name: 'ApprovalError', code: 'APPROVAL_REJECTED' }   ← 0.2.2-rc.3+；唯一信号，老宿主无 info（不支持）
         ↓
 [materializeFinalResult] → result.error.message / result.error.info
         ↓
@@ -36,7 +36,7 @@
         ↓ (我们的 listener)
         ├─ exec.agent === undefined → next() 透传
         ├─ !inScope(exec.name) → next() 透传
-        ├─ !isRejectionResult(...) → next() 透传   ← info 优先，字面量兜底
+        ├─ !isRejectionResult(...) → next() 透传   ← info 是唯一信号
         └─ 命中：
               ├─ resolveMessage(cfg, exec.name) 决定新文本
               ├─ mode === 'stop' → WeakMap<Session, true>.set(session, true)
@@ -52,7 +52,7 @@
 [ReactLoopAgent.turn()] → turnEnds = { kind: 'blocked' }，return false
 ```
 
-## 4. 检测：结构化身份优先 + 字面量兜底
+## 4. 检测：结构化身份（唯一信号）
 
 0.2.2-rc.3 起上游在拒绝结果上写**会持久化**的结构化身份：
 
@@ -65,27 +65,26 @@ decision: approvalDenial(`the user rejected tool "${exec.name}"`, APPROVAL_REJEC
 // → 结果落盘为 error: { message: '…', info: { name: 'ApprovalError', code: 'APPROVAL_REJECTED' } }
 ```
 
-`isRejectionResult` 先比 `error.info`，未命中再比字面量：
+`isRejectionResult` 只比 `error.info`：
 
 ```typescript
 const info = result.error?.info
-if (info?.name === APPROVAL_ERROR_NAME && info.code === APPROVAL_REJECTED) return true
-return result.error?.message === OFFICIAL_REJECTION_TEMPLATE.replace('{name}', toolName)
+return info?.name === APPROVAL_ERROR_NAME && info.code === APPROVAL_REJECTED
 ```
 
 - **只认 `APPROVAL_REJECTED`**：`APPROVAL_CANCELLED`（用户取消审批弹窗）和
   `APPROVAL_UNAVAILABLE`（没有可用审批通道）都不是「用户拒绝」——既不改写，
   也不停 turn。
-- **info 存在但 name/code 不匹配时**继续比字面量（例如将来新增别的审批错误
-  类，或某个失败路径复用了 `ApprovalError` 名字）；字面量匹配是「不匹配」的
-  最终兜底，而不是「info 缺失」专属。
-- **为什么保留兜底**：peer 仍覆盖 `0.2.1-rc.*` / `0.2.2-rc.1`，这些宿主的
-  **审批拒绝结果**不带 `error.info`（其它失败路径自 rc.1 起就可能带 `info`），
-  同一份产物要两边都能用。
-- **兜底的耦合点**：`OFFICIAL_REJECTION_TEMPLATE` 与官方原文耦合——
-  0.2.2-rc.3 在 `pipeline.ts:468`（rc.1 为 `:460`，发布产物 `lib/pipeline.js`，
-  `@deepseek-ai/dsh-tools/pipeline` 子入口）；旧训练在 `index.ts:1755` /
-  `1763`。行号只用于定位，`ci:drift` 断言的是稳定字面前缀。
+- **老宿主明确不支持**（2026-11 与用户对齐）：`0.2.1-rc.*` / `0.2.2-rc.1`–rc.2
+  的**审批拒绝结果**不带 `error.info`（其它失败路径自 rc.1 起就可能带 `info`），
+  info-only 检测在这些宿主上恒为 false，插件不触发。原先的字面文案兜底
+  （`OFFICIAL_REJECTION_TEMPLATE` 全串相等）已移除：文案是写给人读的、不是
+  程序契约，且它与 `ci:drift` 的前缀断言不对称——上游在文案**尾部**追加文字时
+  守卫全绿、运行时静默失效。与其修补对齐，不如整条删掉。
+- **身份字符串的耦合点**：`ApprovalError` / `APPROVAL_REJECTED` 是持久化契约、
+  上游不 re-export，本插件本地复刻；`ci:drift` 对这两个字符串各持一条断言
+  （候选首推 `src/error-codes.ts`，发布产物走 `lib/*.js` 兜底扫描）。上游改
+  name 或 code → `ci:drift` 红 → 同步 `src/index.ts`。
 - **为什么透传 `info`**：rc.3 的 registry 用 block 的 feedback 重建失败结果
   （`pipeline.ts:501-505`），不带 `info` 就等于把上游刚加的结构化身份丢掉；
   `PostToolDecision.block.info` 正是为此新增的。
@@ -140,15 +139,15 @@ plugin-reject-policy/
 
 | 检查 | 状态 |
 |---|---|
-| `tests/reject-policy-check.mts` | ✅ 25/25（0.5.3 起在 `0.2.2-rc.3` devDeps 上；0.3.0 时为 18/18） |
+| `tests/reject-policy-check.mts` | ✅ 27/27（info-only 检测起；0.5.3 为 25/25） |
 | `pnpm run typecheck` / `typecheck:client` | ✅ 0.5.3 起实跑通过（0.3.0 开发期因 shell sandbox 未跑） |
-| `pnpm run ci:drift` | ✅ 0.5.3 起断言双契约：文案前缀 + `APPROVAL_REJECTED` |
+| `pnpm run ci:drift` | ✅ 断言双身份契约：`ApprovalError` 名 + `APPROVAL_REJECTED` 码（0.5.3 曾为文案前缀 + code） |
 | `scratch-plugin/tests/smoke-apply.mts`、`gate-check.mts` | ✅ 0.3.0 开发期通过（已不在本仓库） |
 | `pnpm --filter @deepseek-ai/dsh-agent-loop test` | — 不再适用（本仓库不是 monorepo 子包） |
 
 ## 9. 已知限制 / 后续要看的点
 
-1. **字面量兜底仍与官方文本耦合**：0.2.2-rc.3+ 靠结构化 `error.info` 判断，上游改文案不再致命；但 `0.2.1-rc.*` / `0.2.2-rc.1` 宿主只能走字面量，那时官方改文案 → `OFFICIAL_REJECTION_TEMPLATE` 必须同步（`ci:drift` 会红）。
+1. **身份字符串与上游耦合**：检测唯一信号是上游持久化的 `ApprovalError` / `APPROVAL_REJECTED`（本地复刻、不 import），上游改任一字符串检测即静默失效——`ci:drift`（挂在 `test` / `build`）是唯一守护。老宿主（`0.2.1-rc.*` / `0.2.2-rc.1`–rc.2）审批拒绝不带 `info`，明确不支持：装得上但不触发。
 2. **文案不进 settings**：和用户对齐过的取舍，不是 bug。
 3. **plugin 路径不在 `packages/`**：因为是部署侧 composition，不属于官方包。
 4. **不在 agent loop 之外的 bash 工具调用上生效**：harness 自己的 bash 工具不走 agent loop，本插件看不到。
@@ -160,6 +159,7 @@ plugin-reject-policy/
 | 改 `packages/core/tools/src/index.ts` `serviceAsk` | 越过"packages/ 是官方包"的边界；每个下游消费者都得 opt-in |
 | "hide + stop" 模式（拒绝结果不进 log） | log 是 replay/调试的唯一来源，藏起来会丢失；"tell + stop" 已足够 |
 | abort agent signal | turn end = aborted；语义混淆；打断并行 tool |
+| 字面兜底改 startsWith 前缀匹配 | 仍守「文案」这个非契约信号，且只在老宿主上有意义——老宿主改由明确不支持（2026-11 与用户对齐），比修补对齐更干净 |
 | hook `approval/request` 改 reason | `serviceAsk` 的 reason 是硬编码模板，不是 approval outcome，无法在 hook 层改 |
 | 用 `error.info.reason` 代替改 `error.message` | 上游 `ToolErrorInfo.reason` 注释明确「model-facing content does not include it」——模型看不到，达不到"改模型可见拒因"的目的 |
 | 文案进 settings | 一次性的文案没有"live rule"语义；运行时改没清晰含义 |

@@ -92,21 +92,11 @@ export const Config = z.object({
 }) as z<RuntimeConfig>
 
 /**
- * 官方审批拒绝写出的拒因模板。0.2.2-rc.3 起仍位于 execution pipeline
- * （`packages/core/tools/src/pipeline.ts:468`，发布产物 `lib/pipeline.js`）；
- * 旧训练在 `index.ts:1755` / `1763`。行号仅供定位，匹配靠字面前缀。
- *
- * 0.2.2-rc.3 起本模板只作**兜底**：拒绝结果带上结构化身份
- * `error.info = { name: 'ApprovalError', code: 'APPROVAL_REJECTED' }`
- * （`packages/core/tools/src/error-codes.ts:9-12`），检测优先用它，见
- * {@link isRejectionResult}。
- */
-export const OFFICIAL_REJECTION_TEMPLATE = 'the user rejected tool "{name}"'
-
-/**
  * 审批拒绝结果的结构化身份（0.2.2-rc.3+）。上游不 re-export 这两个字符串
  * （`error-codes.ts` 的注释是「the values are persisted contract … consumers
- * compare the recorded strings」），所以按持久化契约值本地复刻，不 import。
+ * compare the recorded strings」），所以按持久化契约值本地复刻，不 import；
+ * `pnpm ci:drift`（`scripts/check-official-template.ts`）对这两个字符串各持
+ * 一条断言，是本地复刻与上游保持同步的守护。
  */
 const APPROVAL_ERROR_NAME = 'ApprovalError'
 const APPROVAL_REJECTED = 'APPROVAL_REJECTED'
@@ -140,34 +130,36 @@ export function clearStopPending(session: Session): void { stopPending.delete(se
 /**
  * 判断检测：result 是官方审批拒绝生成的拒绝结果。
  *
- * 0.2.2-rc.3 起优先看**结构化身份** `error.info`
- * （`{ name: 'ApprovalError', code: 'APPROVAL_REJECTED' }`，由
- * `packages/core/tools/src/pipeline.ts:468` 的 `approvalDenial(...)` 写入并持久化）：
- * 文案是写给人读的，`code` 才是给程序读的契约，上游改措辞不会让本插件静默失效。
+ * 只认 0.2.2-rc.3+ 写入并**持久化**的结构化身份 `error.info =
+ * { name: 'ApprovalError', code: 'APPROVAL_REJECTED' }`
+ * （`packages/core/tools/src/pipeline.ts:468` 的 `approvalDenial(...)` 写入）：
+ * 文案是写给人读的，`code` 才是给程序读的契约，上游改措辞不影响检测。
  * 只认 `APPROVAL_REJECTED`——`APPROVAL_CANCELLED`（用户取消了审批弹窗）与
  * `APPROVAL_UNAVAILABLE`（没有可用审批通道）都不是「用户拒绝」：既不改写，
  * 也不停 turn。
  *
- * `0.2.2-rc.1` 及更早的宿主里，**审批拒绝结果本身**不带 `error.info`（其它失败
- * 路径自 rc.1 起就可能带 `info`），因此回落到字面前缀匹配；`info` 存在但
- * name/code 不匹配时也继续尝试字面量。兜底路径仍受 `pnpm ci:drift` 守护
- * （见 `scripts/check-official-template.ts`）。
+ * 老宿主（`0.2.1-rc.*` / `0.2.2-rc.1`–`rc.2`）的**审批拒绝结果**不带
+ * `error.info`（其它失败路径自 rc.1 起就可能带 `info`），info-only 检测在这些
+ * 宿主上恒为 false，插件不触发——老宿主明确不支持。原先的字面文案兜底
+ * （`OFFICIAL_REJECTION_TEMPLATE` 全串相等）已移除：文案不是程序契约，且
+ * 与 `ci:drift` 守卫的前缀断言不对称（上游在文案尾部追加文字时守卫全绿、
+ * 运行时静默失效）。身份字符串的漂移由 `pnpm ci:drift` 守护（断言 name 与
+ * code 两个字符串，见 `scripts/check-official-template.ts`）。
  */
-function isRejectionResult(toolName: string, result: ToolExecutionResult): boolean {
+function isRejectionResult(result: ToolExecutionResult): boolean {
   if (!result.isError) return false
   const info = result.error?.info
-  if (info?.name === APPROVAL_ERROR_NAME && info.code === APPROVAL_REJECTED) return true
-  return result.error?.message === OFFICIAL_REJECTION_TEMPLATE.replace('{name}', toolName)
+  return info?.name === APPROVAL_ERROR_NAME && info.code === APPROVAL_REJECTED
 }
 
 /** apply — 插件装载入口。注册 post-execute 改写与 pre-step 置停两个 waterfall。 */
 export function apply(ctx: Context, config: RuntimeConfig): void {
-  // 一次性提示：检测优先用 0.2.2-rc.3+ 的结构化 `error.info`；老宿主回落到
-  // OFFICIAL_REJECTION_TEMPLATE 字面相等——上游改前缀会让兜底路径静默失效。
-  // 用户如果发现配置不灵了，跑 `pnpm ci:drift` 自查。
+  // 一次性提示：检测只认 0.2.2-rc.3+ 持久化的结构化 ApprovalError /
+  // APPROVAL_REJECTED 身份（老宿主的审批拒绝不带 info，明确不支持）。
+  // 用户如果发现配置不灵了，跑 `pnpm ci:drift` 自查上游身份字符串是否漂移。
   console.warn(
-    '[dsh-reject-policy] detection prefers the structured ApprovalError/APPROVAL_REJECTED info ' +
-    '(DSH 0.2.2-rc.3+) and falls back to a literal match on OFFICIAL_REJECTION_TEMPLATE. ' +
+    '[dsh-reject-policy] detection relies solely on the structured ApprovalError/APPROVAL_REJECTED ' +
+    'identity (DSH 0.2.2-rc.3+; hosts whose approval denial carries no error.info are not supported). ' +
     'If overrides silently stop working, run `pnpm ci:drift` to verify upstream has not drifted.',
   )
   // 非 volatile 文案配置：patch 变更走 Loader 整行重挂，apply 会重新捕获，
@@ -202,7 +194,7 @@ export function apply(ctx: Context, config: RuntimeConfig): void {
   ): Promise<PostToolDecision> => {
     if (exec.agent === undefined) return await next()
     if (!inScope(exec.name)) return await next()
-    if (!isRejectionResult(exec.name, result)) return await next()
+    if (!isRejectionResult(result)) return await next()
 
     // 改写错误文本。resolveMessage 返回 undefined 时，仍走 block 但沿用原文——
     // 这样 mode='stop' + 无文案配置 也能置停（用户只想要停，不要改文案）。

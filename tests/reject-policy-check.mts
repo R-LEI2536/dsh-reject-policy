@@ -16,7 +16,7 @@
  * `vendor/loader/src/config/entry.ts`）。测试必须照此取引用，否则 4.1.0 下
  * `fiber.config.mode` 是 undefined。
  *
- * 覆盖 25 条断言：
+ * 覆盖 27 条断言：
  *   1. mode='default' + 无文案配置 → 结果透传（无 flag、无文案改写）。
  *   2. mode 默认 'stop' + messages.bash → 文案改写 + flag。
  *   3. mode='stop' + messages.bash → 文案改写 + flag 置位 + pre-step 返回 reject。
@@ -24,8 +24,9 @@
  *   5. mode='stop' + defaultMessage='permission denied for {tool}' → 模板替换。
  *   6. 运行时改 volatile mode='default' → 后续拒绝回到"仅改文案"。
  *   7. resolveMessage 纯函数单测。
- *   8. 0.2.2-rc.3+ 结构化身份：info 优先于文案（文案漂移仍命中、透传 info、
- *      APPROVAL_CANCELLED / APPROVAL_UNAVAILABLE 不算拒绝、无 info 时兜底不误命中）。
+ *   8. 结构化身份：error.info 是唯一检测信号（文案漂移仍命中、透传 info、
+ *      APPROVAL_CANCELLED / APPROVAL_UNAVAILABLE 不算拒绝、无 info 的老宿主
+ *      一律不触发）。
  */
 
 import { Context } from '@deepseek-ai/cordis'
@@ -62,16 +63,21 @@ const makeExec = (name: string) => ({
   token: Symbol('token'),
 })
 
+/** 0.2.2-rc.3+ 拒绝结果携带的结构化身份（info-only 检测的唯一信号）。 */
+const APPROVAL_INFO = { name: 'ApprovalError', code: 'APPROVAL_REJECTED' } as const
+
 const makeRejectionResult = (
   toolName: string,
-  extra: { message?: string; info?: { name: string; code: string } } = {},
+  extra: { message?: string; info?: { name: string; code: string } | null } = {},
 ) => {
-  // 0.2.2-rc.3+ 的真实拒绝结果同时带 `error.info` 结构化身份；省略 info 即
-  // 模拟 0.2.2-rc.1 及更早宿主（只有 message，靠字面量兜底）。
-  const message = extra.message ?? mod.OFFICIAL_REJECTION_TEMPLATE.replace('{name}', toolName)
+  // 默认模拟 0.2.2-rc.3+：拒绝结果带 error.info 结构化身份；文案与检测无关，
+  // 默认取官方原文只为逼真。info: null 模拟老宿主（0.2.1-rc.* /
+  // 0.2.2-rc.1–rc.2，审批拒绝不带 info）——插件对这些宿主不触发。
+  const info = extra.info === undefined ? APPROVAL_INFO : extra.info
+  const message = extra.message ?? `the user rejected tool "${toolName}"`
   return {
     isError: true as const,
-    error: { message, ...(extra.info === undefined ? {} : { info: extra.info }) },
+    error: { message, ...(info === null ? {} : { info }) },
     content: [{ type: 'text' as const, text: `Error: ${message}` }],
   }
 }
@@ -223,7 +229,7 @@ async function runPreStep(ctx: Context): Promise<{ kind: 'enter' | 'reject' }> {
   )
 }
 
-// ── 8) 0.2.2-rc.3+ 结构化身份：error.info 优先于文案 ─────────────────────────
+// ── 8) 结构化身份：error.info 是唯一检测信号 ───────────────────────────────
 {
   const { ctx } = await mount({ stopOnRejectTools: [], messages: { bash: 'permission denied by user' } })
 
@@ -265,14 +271,23 @@ async function runPreStep(ctx: Context): Promise<{ kind: 'enter' | 'reject' }> {
     r3.errorMessage === 'tool "bash" requires approval, but no approval channel is available' && r3.flagged === false,
   )
 
-  // 8d) 无 info（老宿主）且文案已漂移 → 兜底不误命中。
+  // 8d) 无 info（老宿主 0.2.1-rc.* / 0.2.2-rc.1–rc.2）且文案已漂移 → 不触发。
+  //     老宿主明确不支持：字面文案兜底已移除，文案不是信号。
   mod.clearStopPending(fakeSession)
-  const noInfoDrifted = makeRejectionResult('bash', { message: 'The user denied the "bash" call.' })
+  const noInfoDrifted = makeRejectionResult('bash', { message: 'The user denied the "bash" call.', info: null })
   const r4 = await runRejection(ctx, 'bash', noInfoDrifted)
   expect(
-    '无 info + 文案漂移：兜底不误命中',
+    '无 info：不触发（老宿主不支持）',
     r4.errorMessage === 'The user denied the "bash" call.' && r4.flagged === false,
   )
+
+  // 8e) 无 info 且文案恰为官方原文 → 同样不触发：字面文案不再是检测信号
+  //     （0.5.x 曾靠全串相等的字面兜底命中，行为自此改变）。
+  mod.clearStopPending(fakeSession)
+  const noInfoOfficial = makeRejectionResult('bash', { info: null })
+  const r5 = await runRejection(ctx, 'bash', noInfoOfficial)
+  expect('无 info + 官方原文：不改写', r5.errorMessage === 'the user rejected tool "bash"', `got=${r5.errorMessage}`)
+  expect('无 info + 官方原文：不置 flag', r5.flagged === false)
 }
 
 if (failures > 0) {
