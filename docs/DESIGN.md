@@ -77,7 +77,8 @@ return info?.name === APPROVAL_ERROR_NAME && info.code === APPROVAL_REJECTED
   也不停 turn。
 - **老宿主明确不支持**（2026-11 与用户对齐）：`0.2.1-rc.*` / `0.2.2-rc.1`–rc.2
   的**审批拒绝结果**不带 `error.info`（其它失败路径自 rc.1 起就可能带 `info`），
-  info-only 检测在这些宿主上恒为 false，插件不触发。原先的字面文案兜底
+  info-only 检测在这些宿主上恒为 false；peer 已同步收窄到 `^0.2.2-rc.3`，
+  这些宿主在 boot 兼容门禁即被拒，装不上。原先的字面文案兜底
   （`OFFICIAL_REJECTION_TEMPLATE` 全串相等）已移除：文案是写给人读的、不是
   程序契约，且它与 `ci:drift` 的前缀断言不对称——上游在文案**尾部**追加文字时
   守卫全绿、运行时静默失效。与其修补对齐，不如整条删掉。
@@ -147,7 +148,7 @@ plugin-reject-policy/
 
 ## 9. 已知限制 / 后续要看的点
 
-1. **身份字符串与上游耦合**：检测唯一信号是上游持久化的 `ApprovalError` / `APPROVAL_REJECTED`（本地复刻、不 import），上游改任一字符串检测即静默失效——`ci:drift`（挂在 `test` / `build`）是唯一守护。老宿主（`0.2.1-rc.*` / `0.2.2-rc.1`–rc.2）审批拒绝不带 `info`，明确不支持：装得上但不触发。
+1. **身份字符串与上游耦合**：检测唯一信号是上游持久化的 `ApprovalError` / `APPROVAL_REJECTED`（本地复刻、不 import），上游改任一字符串检测即静默失效——`ci:drift`（挂在 `test` / `build`）是唯一守护。老宿主（`0.2.1-rc.*` / `0.2.2-rc.1`–rc.2）审批拒绝不带 `info`，明确不支持：peer 收窄到 `^0.2.2-rc.3`，boot 门禁直接拒绝安装。
 2. **文案不进 settings**：和用户对齐过的取舍，不是 bug。
 3. **plugin 路径不在 `packages/`**：因为是部署侧 composition，不属于官方包。
 4. **不在 agent loop 之外的 bash 工具调用上生效**：harness 自己的 bash 工具不走 agent loop，本插件看不到。

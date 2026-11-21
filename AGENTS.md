@@ -6,14 +6,14 @@ rejected, and optionally halts the turn after the rejection.
 ## Project
 
 - Standalone DSH plugin package (version `0.5.3`, `name = dsh-reject-policy`).
-- Targets DSH `0.2.1-rc.*` and `0.2.2-rc.1` … `rc.3` (`^0.2.1-rc.1 ||
-  ^0.2.2-rc.1` peer ranges; the 10 consumed `@deepseek-ai/dsh-*` packages are
-  also pinned as exact `devDependencies` to the latest verified rc
-  (`0.2.2-rc.3`) for typecheck/build). Installs on an `0.2.0-rc.*` or older
-  host are rejected by the boot compatibility gate. **Detection requires
-  `0.2.2-rc.3`+** (approval denials carry `error.info` from that rc): the
-  artifact installs on `0.2.1-rc.*` / `0.2.2-rc.1`–`rc.2` hosts but never
-  triggers there — old hosts are deliberately unsupported.
+- Targets DSH `0.2.2-rc.3`+ (`^0.2.2-rc.3` peer ranges; the 10 consumed
+  `@deepseek-ai/dsh-*` packages are also pinned as exact `devDependencies`
+  to the latest verified rc (`0.2.2-rc.3`) for typecheck/build). The peer
+  floor is the **detection floor**: approval denials carry `error.info` only
+  from `0.2.2-rc.3`, and info-only detection means anything older can never
+  trigger — so the boot compatibility gate now rejects installs on
+  `0.2.2-rc.1`–`rc.2`, `0.2.1-rc.*` and `0.2.0-rc.*` (or older) hosts
+  alike.
 - Building and verifying against the `0.2.2-rc.3` devDeps requires Node
   `>= 24.9.0` (that train dropped Node 22). The published plugin has no Node
   floor of its own; it runs on whatever Node the host runs.
@@ -212,8 +212,9 @@ Run from the repo root with `pnpm`.
   git-ignored. Do not commit secrets; do not echo them into docs.
 - `pnpm-lock.yaml` is the source of truth for installed versions. Two knobs
   pin the upstream train and they move together: the `@deepseek-ai/dsh-*` peer
-  ranges (what consumers/hosts must satisfy — keep them wide) and the exact
-  `devDependencies` pins (what this repo typechecks/builds against). **Note**:
+  ranges (what consumers/hosts must satisfy — the floor must never drop below
+  the detection floor) and the exact `devDependencies` pins (what this repo
+  typechecks/builds against). **Note**:
   prerelease semver does not float forward across patch lines under
   node-semver's default prerelease rules (`^0.2.0-rc.1` never resolves
   `0.2.1-rc.*`) — bump both explicitly when chasing a new train, and delete
@@ -221,14 +222,15 @@ Run from the repo root with `pnpm`.
   libraries to `@deepseek-ai/cordis` `4.1.0` and `@deepseek-ai/schemastery`
   `3.19.0`; the peers must cover both the old and the new minor (`^4.0.5`,
   `^3.18.5`), because `~4.0.5` / `~3.18.5` stop below them.
-- Write dsh peer ranges as an OR when a new train lands:
-  `^0.2.1-rc.1 || ^0.2.2-rc.1`. The boot gate tests each peer with
+- Write dsh peer ranges as an OR **only while one artifact must serve several
+  trains** — `^0.2.1-rc.1 || ^0.2.2-rc.1` was such a case, kept the gate and
+  pnpm happy at once (the boot gate tests each peer with
   `semver.satisfies(..., { includePrerelease: true })`, under which
-  `^0.2.1-rc.1` already admits `0.2.2-rc.1`; but node-semver's **default**
-  rules (pnpm peer resolution, `npm ls`) do not, so the OR keeps both the gate
-  and the package manager happy while one artifact serves both trains. Never
-  write `^0.2.1` alone (it rejects `0.2.1-rc.*` hosts), and never pin an exact
-  rc in peers — the next rc would be rejected again.
+  `^0.2.1-rc.1` already admitted `0.2.2-rc.1`; node-semver's **default** rules
+  — pnpm peer resolution, `npm ls` — did not). Since info-only detection the
+  range is a single `^0.2.2-rc.3`: do not widen it below the detection floor,
+  never write `^0.2.2` alone (it rejects `0.2.2-rc.*` prerelease hosts), and
+  never pin an exact rc in peers — the next rc would be rejected again.
 
 ## The boot compatibility gate
 

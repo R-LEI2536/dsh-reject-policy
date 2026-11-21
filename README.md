@@ -11,7 +11,7 @@ When the official `serviceAsk` rejects a tool call, the model receives a fixed d
 
 The plugin does not modify DSH source code. Both behaviors attach to existing waterfalls (`tools/post-execute`, `agent/pre-step`).
 
-A rejection is recognized by the structured identity `error.info = { name: 'ApprovalError', code: 'APPROVAL_REJECTED' }` that DSH `0.2.2-rc.3`+ records on the denied tool result — the only detection signal. Hosts whose approval denial carries no `error.info` (`0.2.1-rc.*` / `0.2.2-rc.1`–`rc.2`) are **not supported**: the plugin installs there but never triggers.
+A rejection is recognized by the structured identity `error.info = { name: 'ApprovalError', code: 'APPROVAL_REJECTED' }` that DSH `0.2.2-rc.3`+ records on the denied tool result — the only detection signal. Hosts whose approval denial carries no `error.info` (`0.2.1-rc.*` / `0.2.2-rc.1`–`rc.2`) are **not supported**: the `^0.2.2-rc.3` peer floor makes the boot compatibility gate reject the install there.
 
 ## Behavior modes
 
@@ -28,7 +28,7 @@ A rejection is recognized by the structured identity `error.info = { name: 'Appr
 
 ## Installation
 
-Requires DSH `0.2.1-rc.1`+ to install — built, typechecked and tested against `0.2.2-rc.3`. The `@deepseek-ai/dsh-*` peer ranges are `^0.2.1-rc.1 || ^0.2.2-rc.1`, so the same artifact is accepted by an `0.2.1-rc.*` host and by `0.2.2-rc.1` … `rc.3`. **Detection, however, requires `0.2.2-rc.3`+**: on `0.2.1-rc.*` / `0.2.2-rc.1`–`rc.2` hosts the approval denial carries no `error.info`, so the plugin installs but never triggers there. The host's boot compatibility gate rejects it on an `0.2.0-rc.*` (or older) host, so install it in the same batch as the host upgrade.
+Requires DSH `0.2.2-rc.3`+ — built, typechecked and tested against `0.2.2-rc.3`. The `@deepseek-ai/dsh-*` peer ranges are `^0.2.2-rc.3`: approval denials carry `error.info` — the only detection signal — from that rc, so the boot compatibility gate rejects the plugin on any older host (`0.2.2-rc.1`–`rc.2`, `0.2.1-rc.*`, `0.2.0-rc.*` or below); install it in the same batch as the host upgrade.
 
 ```sh
 dsh plugin --profile web add "link:/path/to/dsh-reject-policy"
@@ -114,7 +114,7 @@ the user.
 
 ## Known Limitations and Deferred Work
 
-- **Rejection detection** relies solely on the structured identity `error.info = { name: 'ApprovalError', code: 'APPROVAL_REJECTED' }` that DSH `0.2.2-rc.3`+ records on the denied tool result (`packages/core/tools/src/error-codes.ts:9-12`); only `APPROVAL_REJECTED` counts, not `APPROVAL_CANCELLED` / `APPROVAL_UNAVAILABLE`. Hosts whose approval denial carries no `error.info` (`0.2.1-rc.*` / `0.2.2-rc.1`–`rc.2`) are **not supported** — the plugin installs there (peer ranges unchanged) but never triggers; the old literal-text fallback (`OFFICIAL_REJECTION_TEMPLATE`) was removed because the human-readable message is not a contract. `pnpm run ci:drift` (wired into `pnpm test` / `pnpm build`) scans the installed `@deepseek-ai/dsh-tools` package (`src/error-codes.ts` first, then published `lib/*.js` chunks as a layout fallback) for both identity strings — `ApprovalError` and `APPROVAL_REJECTED` — and exits 1 if either has drifted; run `pnpm test` or `pnpm build` after upgrading DSH to catch this locally.
+- **Rejection detection** relies solely on the structured identity `error.info = { name: 'ApprovalError', code: 'APPROVAL_REJECTED' }` that DSH `0.2.2-rc.3`+ records on the denied tool result (`packages/core/tools/src/error-codes.ts:9-12`); only `APPROVAL_REJECTED` counts, not `APPROVAL_CANCELLED` / `APPROVAL_UNAVAILABLE`. Hosts whose approval denial carries no `error.info` (`0.2.1-rc.*` / `0.2.2-rc.1`–`rc.2`) are **not supported** — the narrowed `^0.2.2-rc.3` peers make the boot compatibility gate reject the install there; the old literal-text fallback (`OFFICIAL_REJECTION_TEMPLATE`) was removed because the human-readable message is not a contract. `pnpm run ci:drift` (wired into `pnpm test` / `pnpm build`) scans the installed `@deepseek-ai/dsh-tools` package (`src/error-codes.ts` first, then published `lib/*.js` chunks as a layout fallback) for both identity strings — `ApprovalError` and `APPROVAL_REJECTED` — and exits 1 if either has drifted; run `pnpm test` or `pnpm build` after upgrading DSH to catch this locally.
 - **The rewrite still targets `error.message`.** Upstream's `ToolErrorInfo.reason` is durable-only — its comment states that model-facing content does not include it — so changing what the model reads still requires rewriting the message. The plugin passes the original `error.info` through on its `block` decision, so downstream consumers keep seeing the approval identity after a rewrite.
 - **Coverage** is limited to tool calls that go through the agent loop. Harness-internal bash and other out-of-loop tool calls are not observable here.
 - **`mode` defaults to `'stop'`**, which closes the turn on the very first rejection. Consumers that want "rewrite only, never halt" should set `mode: 'default'` at install time or toggle it through the Plugins page.

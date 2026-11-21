@@ -2,14 +2,22 @@
 
 ## Unreleased
 
-Detection is now info-only: the literal-text fallback is removed and hosts
-whose approval denial carries no `error.info` are deliberately unsupported.
+Detection is now info-only: the literal-text fallback is removed, and the
+peer floor is narrowed to the detection floor — hosts whose approval denial
+carries no `error.info` are rejected at install time.
 
+- **breaking(peers)**: the 10 `@deepseek-ai/dsh-*` peer ranges narrow from
+  `^0.2.1-rc.1 || ^0.2.2-rc.1` to `^0.2.2-rc.3`, making the install-time floor
+  equal the detection floor: the boot compatibility gate now rejects
+  installation/activation on `0.2.1-rc.*` / `0.2.2-rc.1`–`rc.2` hosts instead
+  of accepting a plugin that could never trigger there. `devDependencies`
+  stay pinned at `0.2.2-rc.3`; `pnpm-lock.yaml` is unchanged (root peers do
+  not enter the lockfile).
 - **breaking(host)**: `isRejectionResult` matches only the persisted
   structured identity `error.info = { name: 'ApprovalError', code:
   'APPROVAL_REJECTED' }`. Hosts whose approval denial carries no `error.info`
-  (`0.2.1-rc.*` / `0.2.2-rc.1`–`rc.2`) are **not supported**: the plugin
-  installs there (peer ranges unchanged) but never triggers. The removed
+  (`0.2.1-rc.*` / `0.2.2-rc.1`–`rc.2`) are **not supported** — the narrowed
+  peers reject the install outright. The removed
   literal `OFFICIAL_REJECTION_TEMPLATE` match was the only signal those hosts
   could produce — but it guarded a non-contract (the human-readable message)
   and was stricter than what `ci:drift` actually asserts (the message prefix):
