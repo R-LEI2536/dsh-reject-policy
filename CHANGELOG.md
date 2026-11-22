@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.0 (2026-11-22)
+
+The composer mode switch moves out of the dock strip into the composer's
+tool row, where the other mode chips live.
+
+- **feat(client)**: the persistent `mode` switch re-registers from
+  `conversation.input.dock` (order 15 strip above the composer) to
+  `conversation.input.left` (order 20, trailing the third-party approval-mode
+  chip at order 10 in the same row as the permission/plan seats). Toggle
+  semantics are unchanged: the same shared `configForms` form the Plugins-page
+  card edits, one-click in-place toggling, unset-on-base, optimistic pending,
+  `role="alert"` retryable failure, and the always-reachable read-only
+  tooltip.
+- **feat(client)**: the switch renders as a 28px chip in the official
+  tool-row family (the `PermissionSelect` `.trigger` spec: transparent until
+  hover, radius-sm, box-shadow focus ring, narrow-composer `@container`
+  collapses the label keeping the shield glyph). Chip copy is label + value
+  (zh 即停/继续, en Stop/Continue).
+- UX history: the dock strip originally spanned the whole composer row
+  (`3762a3f` first shrank it to a content-sized capsule on the family's
+  centered alignment line); on wide windows the standalone placement still
+  read as a floating island, so the switch now lives in the tool row
+  (`b2def66`). Both rejected placements are recorded in `DESIGN.md` §7.
+- docs: README three-edit-paths, `AGENTS.md` architecture + pitfall wording,
+  `DESIGN.md` §7 rewritten for the tool-row chip.
+
 ## 0.6.0 (2026-11-21)
 
 Detection is now info-only: the literal-text fallback is removed, and the

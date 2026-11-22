@@ -181,7 +181,7 @@ plugin-reject-policy/
 
 ## 9. 验证状态
 
-> 当前验证状态（0.6.0，DSH `0.2.2-rc.3` devDeps）见 `CHANGELOG.md` 的 0.6.0
+> 当前验证状态（0.7.0，DSH `0.2.2-rc.3` devDeps）见 `CHANGELOG.md` 的 0.7.0
 > 节；下表混有 0.3.0（0.1.7-rc.2 对齐）开发期的记录，测试条数已按当前值更新。
 > 0.3.0 的真机消费侧验证见
 > [UPGRADE-0.1.7-LESSONS.md](./UPGRADE-0.1.7-LESSONS.md) §2 验证矩阵。

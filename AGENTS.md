@@ -5,7 +5,7 @@ rejected, and optionally halts the turn after the rejection.
 
 ## Project
 
-- Standalone DSH plugin package (version `0.6.0`, `name = dsh-reject-policy`).
+- Standalone DSH plugin package (version `0.7.0`, `name = dsh-reject-policy`).
 - Targets DSH `0.2.2-rc.3`+ (`^0.2.2-rc.3` peer ranges; the 11 consumed
   `@deepseek-ai/dsh-*` packages are also pinned as exact `devDependencies`
   to the latest verified rc (`0.2.2-rc.3`) for typecheck/build). The peer
