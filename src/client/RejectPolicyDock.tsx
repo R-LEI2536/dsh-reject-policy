@@ -1,16 +1,18 @@
 /**
- * RejectPolicyDock — the persistent `mode` switch above the composer.
+ * RejectPolicyDock — the persistent `mode` switch chip in the composer's
+ * tool row.
  *
- * Registered into `conversation.input.dock` (the strip that also carries
- * the Todo panel, the GoalBar, and the Queue dock). The strip shows the
- * live `mode` at a glance and toggles it in place: no page navigation and
- * no staged Save, because `mode` is a per-task runtime rule, not install
+ * Registered into `conversation.input.left` (the row that also carries the
+ * permission chip, the plan seat, and the third-party approval-mode chip,
+ * order 20 so it trails the approval chip). The row shows the live `mode`
+ * at a glance and toggles it in place: no page navigation and no staged
+ * Save, because `mode` is a per-task runtime rule, not install
  * configuration — burying it behind Plugins → Configure → Save makes the
  * toggle effectively unreachable mid-conversation.
  *
  * Reads and writes ride the SAME shared settings form the Plugins-page card
  * edits (`ctx.configForms.get(REJECT_POLICY_SETTINGS_NAMESPACE)` in the
- * registering `src/client/index.ts`), so the dock and the card can never
+ * registering `src/client/index.ts`), so the chip and the card can never
  * disagree: both re-render from the one describe mirror, and both write
  * through the one Host write queue. Reverting to the composition base
  * clears the user override (`unset`) instead of writing a redundant one —
@@ -19,15 +21,15 @@
  * Renders nothing while the namespace is not served or the mirror has not
  * accepted a section yet (`status !== 'ready'`). A read-only settings
  * provider (`writable === false`; the shipped one always reports writable)
- * keeps the switch visibly inert — the bar dims via `aria-disabled` and the
- * tooltip explains through the shared `readOnly` copy. The button never
+ * keeps the switch visibly inert — the chip dims via `aria-disabled` and
+ * the tooltip explains through the shared `readOnly` copy. The button never
  * takes a real `disabled` attribute: disabled buttons fire no hover/focus
  * events, which would make that explanation unreachable.
  */
 import { useCallback, useState, useSyncExternalStore, type ReactElement } from 'react'
 import { IconShieldOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
-// Type-only: pulls the Conversation slot map entry ('conversation.input.dock')
-// and its owner props (InputZone) into the program. No runtime import — see
+// Type-only: pulls the Conversation slot map entry ('conversation.input.left')
+// and its owner props into the program. No runtime import — see
 // the purity-gate notes in RejectPolicyCard.tsx.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: `ConfigForm` / `ConfigFormSnapshot` carriers.
@@ -43,17 +45,17 @@ export interface RejectPolicyDockInjected {
   form: ConfigForm<RejectPolicySettings>
 }
 
-/** Full component props: dock owner share + injected form + locale copy. */
+/** Full component props: slot owner share + injected form + locale copy. */
 export type RejectPolicyDockProps =
-  & PropsRuntime<'conversation.input.dock'>
+  & PropsRuntime<'conversation.input.left'>
   & InjectFace<RejectPolicyDockInjected>
   & PropsLocale<'reject-policy'>
 
 /**
- * Render the composer-dock mode switch, or nothing while the namespace is
+ * Render the composer tool-row mode chip, or nothing while the namespace is
  * not served yet.
  * @param props - the shared settings form plus the locale seat.
- * @returns the switch strip, or null before the first mirror section.
+ * @returns the switch chip, or null before the first mirror section.
  */
 export function RejectPolicyDock({ form, t }: RejectPolicyDockProps): ReactElement | null {
   // `ConfigForm`'s `subscribe` / `getSnapshot` are prototype methods reading
@@ -113,13 +115,13 @@ export function RejectPolicyDock({ form, t }: RejectPolicyDockProps): ReactEleme
     : t(stop ? 'dock.hint.stop' : 'dock.hint.default')
 
   return (
-    <div className={css.dock} data-reject-policy-dock>
-      <Tooltip portal label={tooltip} side="bottom" delayMs={500}>
+    <>
+      <Tooltip portal label={tooltip} side="top" delayMs={500}>
         <button
           type="button"
           role="switch"
           aria-checked={stop}
-          className={`${css.bar} ${pending ? css.pending : ''}`}
+          className={`${css.trigger} ${pending ? css.pending : ''}`}
           aria-disabled={!writable}
           aria-busy={pending}
           // Stable accessible name: the switch's state lives in
@@ -140,6 +142,6 @@ export function RejectPolicyDock({ form, t }: RejectPolicyDockProps): ReactEleme
         </span>
       ) : null}
       {failed ? <span className={css.error} role="alert">{t('dock.saveFailed')}</span> : null}
-    </div>
+    </>
   )
 }

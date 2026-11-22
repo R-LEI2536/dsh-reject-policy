@@ -8,11 +8,11 @@
 
 | 用户原始需求 | 落地方式 |
 |---|---|
-| 设置里开关 reject 行为 | 插件 Config 的 volatile 字段（entry id `reject-policy`）：composer dock 常驻开关、Plugins 页 row Configure、或 `ctx.settings.update` 编辑 `mode` + `stopOnRejectTools` |
+| 设置里开关 reject 行为 | 插件 Config 的 volatile 字段（entry id `reject-policy`）：composer 工具行 chip、Plugins 页 row Configure、或 `ctx.settings.update` 编辑 `mode` + `stopOnRejectTools` |
 | 拒绝后停当前 turn | `mode='stop'` + `agent/pre-step` 返回 `kind: 'reject'`，turn 以 `kind: 'blocked'` 关闭 |
 | 停哪些 tool 可配 | `stopOnRejectTools: string[]`，空数组 = 全部 |
 | reject 文案可配 | `messages[name]` 精确覆盖；`defaultMessage` 模板兜底（`{tool}` / `{name}`） |
-| mode 开关别埋在设置里（2026-11-21 用户要求） | 客户端 `RejectPolicyDock`：注册进 `conversation.input.dock`（composer 上方 dock 条，与 Todo/Goal/Queue 同族），显示实时 mode 并点击原地切换 |
+| mode 开关别埋在设置里（2026-11-21 用户要求） | 客户端 `RejectPolicyDock`：注册进 `conversation.input.left`（composer 工具行，与 permission/approval chip 同行），显示实时 mode 并点击原地切换 |
 
 ## 2. mode 与文案的 2×2 表
 
@@ -113,7 +113,7 @@ cordis.yml patch（bundle 继承层 + profile user 层，reload/volatile-update 
 ```
 
 DSH 0.1.7 起：`mode` / `stopOnRejectTools` 声明为 Config schema 的
-`.volatile()` 字段，运行时编辑（composer dock 开关、Plugins 页 row Configure
+`.volatile()` 字段，运行时编辑（composer 工具行 chip、Plugins 页 row Configure
 或 `ctx.settings.update('reject-policy', {...})`）写入 `<profile>/cordis.patch.yml`；
 Loader `_commitVolatile` 原地更新 volatile 引用（不重挂），本插件两个
 listener 事件时读 `config.mode.get()` / `config.stopOnRejectTools.get()`，
@@ -121,17 +121,26 @@ listener 事件时读 `config.mode.get()` / `config.stopOnRejectTools.get()`，
 
 **为什么文案不进 volatile**：拒绝文本是一次性交付，不是 live rule。运行时改"下一次拒绝用什么文本"语义模糊（沿用旧取舍）。
 
-## 7. composer dock 常驻开关（客户端第二界面）
+## 7. composer 工具行常驻 chip（客户端第二界面）
 
 2026-11-21 用户要求：mode 开关不能埋在设置里——藏在 Plugins → Configure → Save
 两层导航后面，会话中途实际不可达。落地为 `RejectPolicyDock`
-（`src/client/RejectPolicyDock.tsx`），注册进 `conversation.input.dock`
-（Todo 0 / Goal 10 / Queue 20 同族；本插件 order 15，位于 Goal 与 Queue 之间——Queue 必须保持最末条目，它的负 margin 贴底接缝不容后来者），
+（`src/client/RejectPolicyDock.tsx`），注册进 `conversation.input.left`
+（composer 卡片内部工具行，与 permission/plan seat 同行；第三方 approval-mode
+chip 在 order 10，本插件 order 20 紧随其后，两个 mode 开关读作一对），
 显示实时 `mode`，单击原地切换 `stop ↔ default`，无导航无 Save。
+
+2026-11-22 用户两次迭代后定位于此：先做成 composer 上方 dock 条
+（`conversation.input.dock`）的整行宽条，横向占地太大；改为内容自适应
+胶囊后又漂在通栏列上与卡片不对齐（composerStack 列本身是全宽，对齐靠
+居中公式而非固定 margin-left）。最终采纳用户箭头指定的位置——搬进
+composer 工具行：28px chip 融入 permission/model trigger 家族（透明底、
+hover 才有底色、窄行 `@container` 收起文字只留盾形图标），彻底不再占
+独立横向空间。
 
 关键取舍：
 
-- **单一数据源**：dock 不自建订阅，绑 `ctx.configForms.get('reject-policy')`
+- **单一数据源**：chip 不自建订阅，绑 `ctx.configForms.get('reject-policy')`
   （per-namespace 缓存 → 与 Plugins 页卡片是同一个 form 实例，见
   `src/client/index.ts` 注释）。读写同一条 describe mirror、同一条 Host 写
   队列，两个界面不可能分歧；卡片的 `ConfigPageForm` 只是页面注入的包装，
@@ -145,12 +154,12 @@ listener 事件时读 `config.mode.get()` / `config.stopOnRejectTools.get()`，
   不注册；describe mirror 首个 section 未到（`status !== 'ready'`）渲染
   null。liveshare 非 owner：`settings/describe` 本身就是 owner-only
   （`endpoint-classification.ts:111`），describe 失败 → mirror 无 view →
-  `whileServed` 永不注册——dock 与卡片一样**整条不存在**；「绕开
+  `whileServed` 永不注册——chip 与卡片一样**整条不存在**；「绕开
   `pluginManager/listBundles` 门」只是绕开了 Plugins 页那道门，没绕开
   settings 这道。`writable=false` 分支（可见但 inert + readOnly tooltip）
   是给只读 settings provider 预留的防御路径，当前上游 provider 恒
   `writable=true`。
-- **粒度没变**：dock 只是把入口搬进会话；写仍是 profile patch
+- **粒度没变**：chip 只是把入口搬进会话；写仍是 profile patch
   （`<profile>/cordis.patch.yml`），profile 级共享，不是 per-session。
 
 ## 8. 文件清单
@@ -162,10 +171,10 @@ plugin-reject-policy/
 ├── cordis.patch.yml           ← 发布 patch（dsh.bundle.patch 指向此）
 ├── src/index.ts               ← host 半（name / Config / apply，无 default export）
 ├── src/shared.ts              ← 纯类型/常量面（host/client 共享，零运行时 import）
-├── src/client/index.ts        ← client 半：注册 Plugins 页卡片 + composer dock
+├── src/client/index.ts        ← client 半：注册 Plugins 页卡片 + composer 工具行 chip
 ├── src/client/RejectPolicyCard.tsx / .module.css   ← Plugins 页配置卡片
-├── src/client/RejectPolicyDock.tsx / .module.css  ← composer dock 常驻开关
-├── src/client/locales.ts      ← en/zh 文案（卡片 + dock 同 namespace）
+├── src/client/RejectPolicyDock.tsx / .module.css  ← composer 工具行常驻 chip
+├── src/client/locales.ts      ← en/zh 文案（卡片 + chip 同 namespace）
 ├── tsdown.config.ts           ← host/client 两个 bundle + CSS Modules inline
 └── tests/reject-policy-check.mts  ← 27 条断言（8 组）全过
 ```

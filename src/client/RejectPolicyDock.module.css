@@ -1,97 +1,49 @@
-/* RejectPolicyDock: the composer-dock mode switch. Same family surface as
-   the GoalBar / TodoPanel cards — menu surface, 36px bar, 13px medium
-   labels, theme tokens only — but NOT a full-width strip: the bar is a
-   content-sized chip so it stops hogging the composer row's horizontal
-   space. The wrapper keeps the family's centered width formulas (the
-   composerStack column is full-bleed; centering is what lands every dock
-   card on the shared width axis), and the content-sized bar parks on that
-   wrapper's left edge — the same leading line the Todo / GoalBar cards
-   start on, 2 × dock-inset inside the composer card's edge. */
+/* RejectPolicyDock: the composer tool-row mode switch chip. Same chip
+   family as the official permission/model triggers (PermissionSelect
+   .trigger): 28px tall, transparent until hover, 13px medium, radius-sm,
+   focus ring via box-shadow so it sits inside the composer card. Theme
+   tokens only. */
 
-.dock {
-  box-sizing: border-box;
-  flex: none;
-  display: flex;
+.trigger {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  width: calc(
-    100% -
-    var(--dsh-composer-side-clearance) -
-    var(--dsh-composer-side-clearance) -
-    var(--dsh-composer-dock-inset) -
-    var(--dsh-composer-dock-inset) -
-    var(--dsh-composer-dock-inset) -
-    var(--dsh-composer-dock-inset)
-  );
-  /* Same cap as the Todo panel / GoalBar: without it the wrapper would span
-     the whole composer stack column and overshoot the centered composer
-     card on wide windows. */
-  max-width: calc(
-    var(--dsh-composer-card-max-width) -
-    var(--dsh-composer-dock-inset) -
-    var(--dsh-composer-dock-inset) -
-    var(--dsh-composer-dock-inset) -
-    var(--dsh-composer-dock-inset)
-  );
-  margin: 0 auto;
-}
-
-/* The whole chip is the switch; the mode pill on the trailing end carries
-   the current state, filled for 'stop', outlined for 'default'. Sized to
-   its content (flex: 0 1 auto, no width) so the chip hugs icon + label +
-   pill instead of spanning the composer column. */
-.bar {
-  position: relative;
-  isolation: isolate;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 0 1 auto;
+  gap: 4px;
   min-width: 0;
-  height: 36px;
-  padding: 4px 5px 4px 12px;
-  border: 0;
-  /* Reset the UA button chrome: the platform has no global button reset,
-     and ButtonFace would bleed through the translucent menu surface and
-     defeat the backdrop blur (the GoalBar's .bar is a div and never had
-     this problem). */
-  appearance: none;
+  max-width: 220px;
+  height: 28px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  outline: none;
   background: transparent;
-  --dsw-elevation-stroke-color: var(--dsw-alias-border-l1);
-  border-radius: var(--dsw-radius-md);
-  box-shadow: var(--dsw-elevation-panel);
+  color: var(--dsw-alias-label-secondary);
   font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
   cursor: pointer;
-  text-align: left;
 }
 
-.bar::before {
-  position: absolute;
-  z-index: -1;
-  inset: 0;
-  border-radius: inherit;
-  background: var(--dsw-specific-menu);
-  backdrop-filter: var(--dsw-menu-backdrop-filter);
-  content: '';
-  pointer-events: none;
+@media (hover: hover) {
+  .trigger:hover:not([aria-disabled='true']) {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
 }
 
-.bar:focus-visible {
-  outline: 2px solid var(--dsw-alias-brand-primary);
-  outline-offset: 1px;
+.trigger:focus-visible {
+  box-shadow: 0 0 0 2px var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
 }
 
 /* Visibly inert for a read-only settings provider. Deliberately NOT a real
    `disabled` attribute: disabled buttons fire no hover or focus events,
-   which would make the explanatory tooltip unreachable (see the Queue
-   dock's title-attribute note for the same trap). Clicks stay possible
-   and are guarded in the toggle handler. */
-.bar[aria-disabled='true'] {
+   which would make the explanatory tooltip unreachable. Clicks stay
+   possible and are guarded in the toggle handler. */
+.trigger[aria-disabled='true'] {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
+/* Optimistic in-flight state; focus survives (aria-busy, no disabled). */
 .pending {
   opacity: 0.6;
 }
@@ -102,57 +54,41 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-/* Matches the Todo/Goal/Queue panel titles (13/24 medium, primary).
-   Shrinkable-with-ellipsis so a narrow window cannot force the chip past
-   its max-width. */
 .label {
-  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
-  line-height: 24px;
-  font-weight: 500;
+}
+
+/* The live mode value after the label. 'stop' (the schema default) reads as
+   the armed state — full label color; 'default' recedes to tertiary so the
+   chip stays calm in long unattended runs. Toggling swaps only this color
+   and text, so the chip never jitters. */
+.mode {
+  flex: none;
   color: var(--dsw-alias-label-primary);
 }
 
-/* Trailing mode pill. 'stop' (the schema default) reads as the armed
-   state — filled like the card's Save button; 'default' recedes into an
-   outlined pill so the chip stays calm in long unattended runs. The base
-   1px transparent border keeps both states the same height so toggling
-   does not jitter. Flows after the label (no `margin-left: auto` — the
-   chip has no slack space to distribute); shrinkable-with-ellipsis like
-   the label. */
-.mode {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 1px 10px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  font-size: 12px;
-  line-height: 20px;
-  font-weight: 500;
-}
-
-.mode[data-mode='stop'] {
-  background: var(--dsw-alias-label-primary);
-  color: var(--dsw-alias-bg-layer-3);
-}
-
 .mode[data-mode='default'] {
-  border-color: var(--dsw-alias-border-l2);
-  color: var(--dsw-alias-label-secondary);
+  color: var(--dsw-alias-label-tertiary);
 }
 
-/* Trailing write-failure hint: fixed cap (the chip row has no predictable
-   percentage base) so a long locale string cannot grow the chip wide. */
+/* Narrow composer: label collapses while the shield glyph stays visible.
+   Same cut as the sibling triggers (the container is the composer row,
+   InputBar .row — anonymous query because CSS modules hash
+   container-names per module). */
+@container (max-width: 460px) {
+  .trigger:has(.glyph) .label {
+    display: none;
+  }
+}
+
+/* Trailing write-failure hint; ellipsized so a long locale string cannot
+   squeeze the tool row. */
 .error {
   flex: none;
-  max-width: 180px;
+  max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

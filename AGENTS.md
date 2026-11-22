@@ -27,8 +27,8 @@ rejected, and optionally halts the turn after the rejection.
   - **Client half** — browser/Cordis client plugin (`src/client/`); two
     surfaces over the one `reject-policy` namespace: the configuration page
     on the Plugins page (`plugins.row.config` slot, key
-    `dsh-reject-policy#reject-policy`) and the composer-dock `mode` switch
-    (`conversation.input.dock`, id `reject-policy`, order 15).
+    `dsh-reject-policy#reject-policy`) and the composer tool-row `mode`
+    switch (`conversation.input.left`, id `reject-policy`, order 20).
 - The plugin id, the cordis patch id, and the settings namespace are all the
   same string: `reject-policy` (see `REJECT_POLICY_SETTINGS_NAMESPACE` in
   `src/shared.ts`). The `plugins.row.config` key joins the package name with
@@ -136,9 +136,9 @@ Run from the repo root with `pnpm`.
   serves the `reject-policy` namespace (each registration wrapped in
   `ctx.configForms.whileServed([...])`): the row configuration page
   (`ctx.slots.inject('plugins.row.config', ...)` → `RejectPolicyCard`) and
-  the composer-dock switch (`ctx.slots.inject('conversation.input.dock',
-  () => ctx.slots.register({ ..., order: 15, inject: () => ({ form:
-  ctx.configForms.get(...) }) }, RejectPolicyDock))` — the dock binds its
+  the composer tool-row switch (`ctx.slots.inject('conversation.input.left',
+  () => ctx.slots.register({ ..., order: 20, inject: () => ({ form:
+  ctx.configForms.get(...) }) }, RejectPolicyDock))` — the chip binds its
   own provider-owned shared form instead of a page-supplied one). All
   `@deepseek-ai/dsh-client-*` imports are `import type {}` for
   service/slot-map augmentation only — value imports would break the bundle.
@@ -152,14 +152,14 @@ Run from the repo root with `pnpm`.
   of writing a redundant override. No self-subscription: the page re-renders
   on describe-mirror updates.
 - `src/client/locales.ts` — `en` + `zh` dictionaries for the card and the
-  composer dock (`dock.*` keys). Add new keys to both objects.
+  composer chip (`dock.*` keys). Add new keys to both objects.
 - `src/client/RejectPolicyCard.module.css` — CSS Modules; the
   `dsh-css-modules-inline` plugin in `tsdown.config.ts` hashes classes via
   lightningcss and inlines the stylesheet at factory execution.
-- `src/client/RejectPolicyDock.tsx` — the persistent `mode` switch above the
-  composer (`conversation.input.dock`, order 15 between the GoalBar and the
-  Queue dock — the Queue dock must stay the LAST strip entry, its negative
-  bottom margin tucks it under the composer card). Binds the same shared
+- `src/client/RejectPolicyDock.tsx` — the persistent `mode` switch chip in
+  the composer's tool row (`conversation.input.left`, order 20, trailing the
+  third-party approval-mode chip at order 10 — the same row as the
+  permission/plan seats). Binds the same shared
   form as the card (`ctx.configForms.get` caches per namespace → one
   instance) and reads it via `useSyncExternalStore` wrapped in
   `useCallback`-bound callbacks — the form's `subscribe`/`getSnapshot` are
@@ -175,15 +175,12 @@ Run from the repo root with `pnpm`.
   `disabled`) and shows the optimistic target until the mirror accepts
   it; a failed write shows an inline `role="alert"` hint and stays
   retryable.
-- `src/client/RejectPolicyDock.module.css` — same family surface as the
-  GoalBar / Todo / Queue dock cards (36px bar, `--dsw-*` theme tokens
-  only) but a **content-sized chip**, not a full-width strip: `.dock`
-  keeps the family's centered width formulas (`margin: 0 auto` — the
-  composerStack column is full-bleed, centering is what aligns dock cards
-  with the composer card; never replace it with a fixed `margin-left`,
-  which drifts to the window edge on wide windows), while `.bar` hugs its
-  icon + label + pill width (`flex: 0 1 auto`) so the switch does not hog
-  the composer row. Label and pill ellipsize under the narrow-window cap.
+- `src/client/RejectPolicyDock.module.css` — the composer tool-row chip
+  family (PermissionSelect `.trigger` clone: 28px, transparent until hover,
+  13px medium, radius-sm, focus ring via box-shadow, `--dsw-*` theme tokens
+  only). Label + mode value, no menu: one click toggles. Narrow-composer
+  `@container (max-width: 460px)` collapses the label, keeping the shield
+  glyph — same anonymous-container trick as the sibling triggers.
 - `cordis.patch.yml` — published patch referenced from
   `package.json#dsh.bundle.patch`. Carries default install-time config:
   `stopOnRejectTools: []`, a `bash` message override, and a `defaultMessage`
@@ -336,10 +333,10 @@ rejected inside `engines.dsh`. Consequences that bite this repo:
   `0.2.2-rc.1`, `:147` on `0.2.2-rc.3`), so a
   non-owner Peer — restricted or not — never mounts `plugins.row.config`; the
   card's absence there is expected host behavior, not a registration bug.
-  Verify the card on an owner session. The composer dock is **not** gated by
+  Verify the card on an owner session. The composer chip is **not** gated by
   that endpoint, but it is gated on `settings/describe`, which liveshare
   also classifies `owner-only` (`endpoint-classification.ts:111`) — a
-  non-owner Peer never sees the strip either, because the describe mirror
+  non-owner Peer never sees the chip either, because the describe mirror
   never gets a view and `whileServed` never fires. `snapshot.writable ===
   false` is a defensive read-only path; the shipped settings provider
   always reports `writable: true`.

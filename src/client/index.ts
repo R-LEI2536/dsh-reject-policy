@@ -6,9 +6,10 @@
  *    row gains a **Configure** control; the page owns title, crumb, and
  *    description chrome.
  *
- * 2. The composer-dock mode switch (`conversation.input.dock`, id
- *    `reject-policy`): a persistent strip above the composer showing the
- *    live `mode` and toggling it in place. The dock binds its own shared
+ * 2. The composer mode switch (`conversation.input.left`, id
+ *    `reject-policy`): a persistent chip in the composer's tool row (the
+ *    row that carries the approval-mode and permission chips) showing the
+ *    live `mode` and toggling it in place. The chip binds its own shared
  *    form (`ctx.configForms.get(...)`) instead of a page-supplied one, so
  *    it lives on the conversation surface, not inside the Plugins page.
  *
@@ -26,7 +27,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // entry) into the program.
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 // Type-only: pulls the Conversation SlotMap merge (the
-// 'conversation.input.dock' entry and its owner props) into the program.
+// 'conversation.input.left' entry and its owner props) into the program.
 // Pure types — no runtime import, so it stays out of `dsh.client.inject`
 // and tsdown's EXTERNAL list (see the sync note in `tsdown.config.ts`).
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -85,14 +86,12 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(
     () => ctx.configForms.whileServed(
       [REJECT_POLICY_SETTINGS_NAMESPACE],
-      () => ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
-        name: 'conversation.input.dock',
+      () => ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
+        name: 'conversation.input.left',
         id: 'reject-policy',
-        // Between the GoalBar (order 10) and the Queue dock (order 20): the
-        // Queue dock must stay the LAST strip entry — its negative bottom
-        // margin tucks it under the composer card, and a later sibling would
-        // break that seam.
-        order: 15,
+        // After the third-party approval-mode chip (order 10), so the two
+        // mode switches read as one trailing pair in the tool row.
+        order: 20,
         locale: NS,
         inject: (): RejectPolicyDockInjected => ({
           // Provider-owned shared form: the same snapshot and write queue
@@ -102,6 +101,6 @@ export function apply(ctx: ClientContext): void {
         }),
       }, RejectPolicyDock)),
     ),
-    'reject-policy: composer dock switch',
+    'reject-policy: composer mode chip',
   )
 }
