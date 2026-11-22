@@ -1,7 +1,12 @@
-/* RejectPolicyDock: the composer-dock mode switch. Mirrors the GoalBar /
-   TodoPanel card family — same width + max-width rule, 36px bar, menu
-   surface, 13px medium labels — so the composer stack reads as one family.
-   Theme tokens only, exactly like the other composer-stack cards. */
+/* RejectPolicyDock: the composer-dock mode switch. Same family surface as
+   the GoalBar / TodoPanel cards — menu surface, 36px bar, 13px medium
+   labels, theme tokens only — but NOT a full-width strip: the bar is a
+   content-sized chip so it stops hogging the composer row's horizontal
+   space. The wrapper keeps the family's centered width formulas (the
+   composerStack column is full-bleed; centering is what lands every dock
+   card on the shared width axis), and the content-sized bar parks on that
+   wrapper's left edge — the same leading line the Todo / GoalBar cards
+   start on, 2 × dock-inset inside the composer card's edge. */
 
 .dock {
   box-sizing: border-box;
@@ -18,7 +23,7 @@
     var(--dsh-composer-dock-inset) -
     var(--dsh-composer-dock-inset)
   );
-  /* Same cap as the Todo panel / GoalBar: without it the strip would span
+  /* Same cap as the Todo panel / GoalBar: without it the wrapper would span
      the whole composer stack column and overshoot the centered composer
      card on wide windows. */
   max-width: calc(
@@ -31,8 +36,10 @@
   margin: 0 auto;
 }
 
-/* The whole bar is the switch; the mode pill on the trailing end carries
-   the current state, filled for 'stop', outlined for 'default'. */
+/* The whole chip is the switch; the mode pill on the trailing end carries
+   the current state, filled for 'stop', outlined for 'default'. Sized to
+   its content (flex: 0 1 auto, no width) so the chip hugs icon + label +
+   pill instead of spanning the composer column. */
 .bar {
   position: relative;
   isolation: isolate;
@@ -40,7 +47,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   height: 36px;
   padding: 4px 5px 4px 12px;
@@ -95,9 +102,15 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-/* Matches the Todo/Goal/Queue panel titles (13/24 medium, primary). */
+/* Matches the Todo/Goal/Queue panel titles (13/24 medium, primary).
+   Shrinkable-with-ellipsis so a narrow window cannot force the chip past
+   its max-width. */
 .label {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 13px;
   line-height: 24px;
   font-weight: 500;
@@ -106,12 +119,17 @@
 
 /* Trailing mode pill. 'stop' (the schema default) reads as the armed
    state — filled like the card's Save button; 'default' recedes into an
-   outlined pill so the strip stays calm in long unattended runs. The base
+   outlined pill so the chip stays calm in long unattended runs. The base
    1px transparent border keeps both states the same height so toggling
-   does not jitter. */
+   does not jitter. Flows after the label (no `margin-left: auto` — the
+   chip has no slack space to distribute); shrinkable-with-ellipsis like
+   the label. */
 .mode {
-  flex: none;
-  margin-left: auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   padding: 1px 10px;
   border: 1px solid transparent;
   border-radius: 999px;
@@ -130,11 +148,11 @@
   color: var(--dsw-alias-label-secondary);
 }
 
-/* Trailing write-failure hint: truncated so a long locale string cannot
-   squeeze the bar to zero width. */
+/* Trailing write-failure hint: fixed cap (the chip row has no predictable
+   percentage base) so a long locale string cannot grow the chip wide. */
 .error {
   flex: none;
-  max-width: 45%;
+  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

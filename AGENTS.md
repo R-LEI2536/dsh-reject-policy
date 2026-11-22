@@ -175,10 +175,15 @@ Run from the repo root with `pnpm`.
   `disabled`) and shows the optimistic target until the mirror accepts
   it; a failed write shows an inline `role="alert"` hint and stays
   retryable.
-- `src/client/RejectPolicyDock.module.css` — mirrors the GoalBar / Todo /
-  Queue dock-card family (36px bar, `--dsw-*` theme tokens only, width
-  `calc(100% - 2 × var(--dsh-composer-side-clearance) - 4 ×
-  var(--dsh-composer-dock-inset))`).
+- `src/client/RejectPolicyDock.module.css` — same family surface as the
+  GoalBar / Todo / Queue dock cards (36px bar, `--dsw-*` theme tokens
+  only) but a **content-sized chip**, not a full-width strip: `.dock`
+  keeps the family's centered width formulas (`margin: 0 auto` — the
+  composerStack column is full-bleed, centering is what aligns dock cards
+  with the composer card; never replace it with a fixed `margin-left`,
+  which drifts to the window edge on wide windows), while `.bar` hugs its
+  icon + label + pill width (`flex: 0 1 auto`) so the switch does not hog
+  the composer row. Label and pill ellipsize under the narrow-window cap.
 - `cordis.patch.yml` — published patch referenced from
   `package.json#dsh.bundle.patch`. Carries default install-time config:
   `stopOnRejectTools: []`, a `bash` message override, and a `defaultMessage`
